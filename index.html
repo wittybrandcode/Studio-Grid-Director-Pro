@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ar" dir="rtl" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var OrigWebSocket = window.WebSocket;
+        if (!OrigWebSocket) return;
+        function GuardedWebSocket(url, protocols) {
+          if (protocols === 'vite-hmr' || protocols === 'vite-ping') {
+            var dummy = new EventTarget();
+            dummy.url = String(url || '');
+            dummy.readyState = 1;
+            dummy.protocol = String(protocols || '');
+            dummy.send = function () {};
+            dummy.close = function () {};
+            return dummy;
+          }
+          return protocols !== undefined
+            ? new OrigWebSocket(url, protocols)
+            : new OrigWebSocket(url);
+        }
+        GuardedWebSocket.prototype = OrigWebSocket.prototype;
+        GuardedWebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+        GuardedWebSocket.OPEN = OrigWebSocket.OPEN;
+        GuardedWebSocket.CLOSING = OrigWebSocket.CLOSING;
+        GuardedWebSocket.CLOSED = OrigWebSocket.CLOSED;
+        window.WebSocket = GuardedWebSocket;
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Studio Grid Director Pro | نظام إدارة شبكات معايرة الاستوديو</title>
+    <meta name="description" content="Broadcast-grade LED wall calibration, pixel mapping, and studio camera-blocking grid director with live output window, custom square overrides, and After Effects JSX export." />
+    <meta property="og:title" content="Studio Grid Director Pro | نظام إدارة شبكات معايرة الاستوديو" />
+    <meta property="og:description" content="Broadcast-grade LED wall calibration, pixel mapping, and studio camera-blocking grid director with live output window, custom square overrides, and After Effects JSX export." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Cairo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-[#0B0F17] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-amber-200 overflow-hidden">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

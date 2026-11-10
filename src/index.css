@@ -1,0 +1,144 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Cairo', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Barlow Condensed', 'Cairo', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-color: #22252A;
+    color: #D4D8DF;
+  }
+
+  .font-mono,
+  .tabular-nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  /* Enforce sharp 0px corners on form controls and range sliders */
+  button,
+  input,
+  select,
+  textarea {
+    border-radius: 0px !important;
+  }
+
+  input[type="range"] {
+    accent-color: #9FA6B3;
+  }
+}
+
+/* ============================================================================
+   Muted Matte-Gray Button Theme (Dark Gray at Rest, Radiant Silver ONLY on Hover)
+   ============================================================================ */
+:where(
+  button,
+  a
+):where(
+  .bg-\[\#8E95A2\],
+  .bg-\[\#9FA6B3\],
+  .bg-\[\#B4BAC6\],
+  .bg-\[\#C4C9D4\]
+) {
+  background-color: #2C3038 !important;
+  border-color: #3F4450 !important;
+  color: #C4CAD4 !important;
+  box-shadow: none !important;
+}
+
+:where(
+  button,
+  a
+):where(
+  .bg-\[\#C8CDD8\],
+  .bg-\[\#D4D9E2\],
+  .bg-\[\#DCE0E8\],
+  .bg-\[\#FEF08A\]
+) {
+  background-color: #353A45 !important;
+  border-color: #565E6E !important;
+  color: #ECEFF4 !important;
+  box-shadow: none !important;
+}
+
+/* Ensure icons and text spans inside muted buttons inherit the soft light-gray text at rest */
+:where(
+  button,
+  a
+):where(
+  .bg-\[\#8E95A2\],
+  .bg-\[\#9FA6B3\],
+  .bg-\[\#B4BAC6\],
+  .bg-\[\#C4C9D4\],
+  .bg-\[\#C8CDD8\],
+  .bg-\[\#D4D9E2\],
+  .bg-\[\#DCE0E8\],
+  .bg-\[\#FEF08A\]
+) :where(svg, span:not(.bg-\[\#1F2229\]), .text-\[\#1C1E22\]) {
+  color: inherit !important;
+}
+
+/* Radiant / Bright Highlight ONLY on Hover */
+:where(
+  button:not(:disabled),
+  a
+):where(
+  .bg-\[\#8E95A2\],
+  .bg-\[\#9FA6B3\],
+  .bg-\[\#B4BAC6\],
+  .bg-\[\#C4C9D4\],
+  .bg-\[\#C8CDD8\],
+  .bg-\[\#D4D9E2\],
+  .bg-\[\#DCE0E8\],
+  .bg-\[\#FEF08A\]
+):hover {
+  background-color: #C8CDD8 !important;
+  border-color: #E2E6EE !important;
+  color: #1C1E22 !important;
+  box-shadow: 0 0 10px rgba(200, 205, 216, 0.28) !important;
+}
+
+:where(
+  button:not(:disabled),
+  a
+):where(
+  .bg-\[\#8E95A2\],
+  .bg-\[\#9FA6B3\],
+  .bg-\[\#B4BAC6\],
+  .bg-\[\#C4C9D4\],
+  .bg-\[\#C8CDD8\],
+  .bg-\[\#D4D9E2\],
+  .bg-\[\#DCE0E8\],
+  .bg-\[\#FEF08A\]
+):hover :where(svg, span:not(.bg-\[\#1F2229\]), .text-\[\#1C1E22\]) {
+  color: #1C1E22 !important;
+}
+
+/* Soft Matte Gray Studio Scrollbars (0px border-radius) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #22252A;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #454A54;
+  border-radius: 0px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5A606D;
+}

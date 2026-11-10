@@ -1,0 +1,6 @@
+{
+  "name": "Studio Grid Director Pro | نظام إدارة شبكات معايرة الاستوديو",
+  "description": "Broadcast-grade LED wall calibration, pixel mapping, and studio camera-blocking grid director with live output window, custom square overrides, and After Effects JSX export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
