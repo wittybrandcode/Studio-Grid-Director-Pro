@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+.studio-screens-state.json
+.studio-saved-projects.json
