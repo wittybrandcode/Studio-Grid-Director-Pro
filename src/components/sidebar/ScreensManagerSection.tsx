@@ -3,11 +3,13 @@ import {
   ArrowCounterClockwise,
   ArrowSquareOut,
   ArrowsLeftRight,
+  Broadcast,
   CaretDown,
   CaretUp,
   Check,
   CopySimple,
   Lightning,
+  LinkSimple,
   MonitorPlay,
   Play,
   Plus,
@@ -17,11 +19,21 @@ import {
   Trash,
 } from '@phosphor-icons/react';
 import {
+  DEFAULT_NDI_CONFIG,
+  NdiBgKeyMode,
+  NdiChannelConfig,
+  NdiFrameRate,
   RESOLUTION_PRESETS,
   StudioProject,
   TestPatternType,
   UILanguage,
 } from '../../types/studio';
+import {
+  copyTextWithTauriFallback,
+  isTauriRuntime,
+  openTauriLiveOutputWindow,
+  stopTauriNdiStream,
+} from '../../utils/tauriBridge';
 
 interface ScreensManagerSectionProps {
   screens: StudioProject[];
@@ -49,6 +61,7 @@ interface ScreensManagerSectionProps {
   onToggleSafeMargins: () => void;
   onSetTestPattern: (pattern: TestPatternType) => void;
   onUpdateOverlays?: (patch: Partial<StudioProject['overlays']>) => void;
+  onUpdateNdiConfig?: (patch: Partial<NdiChannelConfig>) => void;
   onIdentifyScreen: (screenId: string) => void;
   onTogglePinIdentifyScreen: (screenId: string) => void;
   onMoveScreen: (screenId: string, direction: 'up' | 'down') => void;
@@ -76,6 +89,7 @@ export const ScreensManagerSection: React.FC<ScreensManagerSectionProps> = React
   onRenameActiveScreen,
   onSetTestPattern,
   onUpdateOverlays,
+  onUpdateNdiConfig,
   onIdentifyScreen,
   onTogglePinIdentifyScreen,
   onMoveScreen,
@@ -83,6 +97,7 @@ export const ScreensManagerSection: React.FC<ScreensManagerSectionProps> = React
   isScreenLiveOpen,
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(true);
+  const [copiedFeedUrl, setCopiedFeedUrl] = useState<boolean>(false);
   const t = (ar: string, en: string) => (lang === 'en' ? en : ar);
 
   useEffect(() => {
@@ -93,6 +108,10 @@ export const ScreensManagerSection: React.FC<ScreensManagerSectionProps> = React
 
   const showSyncBar = Boolean(activeProject.overlays?.movingSyncBar);
   const activePattern: TestPatternType = activeProject.overlays?.testPattern || 'none';
+  const ndiCfg: NdiChannelConfig = {
+    ...DEFAULT_NDI_CONFIG,
+    ...(activeProject.ndiConfig || {}),
+  };
 
   return (
     <div className="bg-[#232730] border border-[#3A3F4B] rounded-none">
@@ -268,7 +287,13 @@ export const ScreensManagerSection: React.FC<ScreensManagerSectionProps> = React
                       href={`#live-output?screen=${encodeURIComponent(scr.id)}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={() => onSyncBeforeOpenOutput(scr)}
+                      onClick={(e) => {
+                        onSyncBeforeOpenOutput(scr);
+                        if (isTauriRuntime()) {
+                          e.preventDefault();
+                          void openTauriLiveOutputWindow(scr, idx > 0 ? idx : undefined);
+                        }
+                      }}
                       title={t(
                         isLive ? 'شاشة العرض متصلة (فتح)' : 'فتح نافذة العرض المباشر',
                         'Open Live Output Window'
@@ -460,6 +485,138 @@ export const ScreensManagerSection: React.FC<ScreensManagerSectionProps> = React
                     </button>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Compact NDI Channel & Clean Alpha / Chroma Key Strip */}
+          {onUpdateNdiConfig && (
+            <div className="p-1.5 bg-[#1B1E24] border border-[#3A3F4B] space-y-1.5 rounded-none">
+              <div className="flex items-center gap-1" dir="ltr">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextEnabled = !ndiCfg.enabled;
+                    if (!nextEnabled) {
+                      void stopTauriNdiStream(activeProject.id, ndiCfg.sourceName);
+                    }
+                    onUpdateNdiConfig({
+                      enabled: nextEnabled,
+                      sourceName:
+                        ndiCfg.sourceName?.trim() ||
+                        `SGD_${activeProject.id.toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`,
+                    });
+                  }}
+                  title={t(
+                    'تشغيل/إيقاف بث قناة NDI لهذه الشاشة (Tauri NDI Sender + NDI Screen Capture Tagging)',
+                    'Toggle NDI Broadcast Stream for Active Screen'
+                  )}
+                  className={`h-7 px-2 flex items-center gap-1 text-[10px] font-mono font-bold border rounded-none cursor-pointer shrink-0 transition-colors ${
+                    ndiCfg.enabled
+                      ? 'bg-[#8CC63F] text-[#0E1706] border-[#ECFCCB]'
+                      : 'bg-[#282C35] hover:bg-[#3E4452] text-[#C4CAD4] border-[#3A3F4B]'
+                  }`}
+                >
+                  <Broadcast weight={ndiCfg.enabled ? 'fill' : 'bold'} className="w-3.5 h-3.5" />
+                  <span>NDI</span>
+                </button>
+
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={ndiCfg.sourceName}
+                  onChange={(e) => onUpdateNdiConfig({ sourceName: e.target.value })}
+                  placeholder="SGD_SCREEN_1"
+                  title={t('اسم مصدر قناة NDI على الشبكة', 'NDI Network Source Name')}
+                  className="flex-1 min-w-0 h-7 bg-[#242830] border border-[#3F4552] focus:border-[#8CC63F] px-2 text-[10px] font-mono font-bold text-[#E6E9F0] outline-none rounded-none"
+                />
+
+                <select
+                  dir="ltr"
+                  value={ndiCfg.frameRate}
+                  onChange={(e) =>
+                    onUpdateNdiConfig({ frameRate: Number(e.target.value) as NdiFrameRate })
+                  }
+                  title={t('معدل إطارات بث NDI بالثانية (FPS)', 'NDI Stream Frame Rate (FPS)')}
+                  className="h-7 bg-[#242830] border border-[#3F4552] px-1 text-[10px] font-mono font-bold text-[#E6E9F0] outline-none cursor-pointer rounded-none shrink-0"
+                >
+                  <option value={25}>25p</option>
+                  <option value={30}>30p</option>
+                  <option value={50}>50p</option>
+                  <option value={60}>60p</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const feedUrl = `${window.location.origin}${window.location.pathname}#live-output?screen=${encodeURIComponent(
+                      activeProject.id
+                    )}`;
+                    void copyTextWithTauriFallback(feedUrl).then((ok) => {
+                      if (ok) {
+                        setCopiedFeedUrl(true);
+                        window.setTimeout(() => setCopiedFeedUrl(false), 1800);
+                      }
+                    });
+                  }}
+                  title={t(
+                    'نسخ رابط Clean Feed المباشر لإدخاله في OBS Browser Source أو vMix Web Browser',
+                    'Copy Clean Feed URL for OBS / vMix Browser Source'
+                  )}
+                  className={`w-7 h-7 flex items-center justify-center border rounded-none cursor-pointer shrink-0 transition-colors ${
+                    copiedFeedUrl
+                      ? 'bg-[#8CC63F] text-[#0E1706] border-[#ECFCCB]'
+                      : 'bg-[#282C35] hover:bg-[#38BDF8] text-[#C4CAD4] hover:text-[#111317] border-[#3A3F4B]'
+                  }`}
+                >
+                  {copiedFeedUrl ? (
+                    <Check weight="bold" className="w-3.5 h-3.5" />
+                  ) : (
+                    <LinkSimple weight="bold" className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
+
+              {/* Clean Key Mode Row: Solid | Alpha (Transparent) | Chroma Green | Chroma Blue + Overlay-Only Toggle */}
+              <div className="flex items-center gap-1" dir="ltr">
+                <select
+                  value={ndiCfg.bgKeyMode}
+                  onChange={(e) =>
+                    onUpdateNdiConfig({ bgKeyMode: e.target.value as NdiBgKeyMode })
+                  }
+                  title={t(
+                    'نمط خلفية الخرْج لتركيب الشبكة فوق الفيديو (Solid / Alpha Key شفاف / Chroma)',
+                    'Background Key Mode (Solid / Transparent Alpha / Chroma Key)'
+                  )}
+                  className="flex-1 min-w-0 h-6 bg-[#242830] border border-[#3F4552] px-1.5 text-[10px] font-mono text-[#DCE0E8] outline-none cursor-pointer rounded-none"
+                >
+                  <option value="solid">{t('خلفية عادية (Solid)', 'Solid Dark BG')}</option>
+                  <option value="alpha">{t('شفاف (Alpha Key RGBA)', 'Alpha Key (Transparent)')}</option>
+                  <option value="chroma_green">{t('كروما خضراء (Chroma Green)', 'Chroma Green (#00FF00)')}</option>
+                  <option value="chroma_blue">{t('كروما زرقاء (Chroma Blue)', 'Chroma Blue (#0000FF)')}</option>
+                </select>
+
+                {ndiCfg.bgKeyMode !== 'solid' && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateNdiConfig({
+                        onlySelectedAndGuidesInAlpha: !ndiCfg.onlySelectedAndGuidesInAlpha,
+                      })
+                    }
+                    title={t(
+                      'إخفاء المربعات غير المحددة ليظهر فقط التحديد والمساطر والليزر فوق الفيديو الحي',
+                      'Show Only Selected Squares, Rulers & Laser over Live Video'
+                    )}
+                    className={`h-6 px-2 text-[9px] font-mono font-bold border rounded-none cursor-pointer shrink-0 transition-colors ${
+                      ndiCfg.onlySelectedAndGuidesInAlpha
+                        ? 'bg-[#38BDF8] text-[#09131C] border-[#E0F2FE]'
+                        : 'bg-[#282C35] text-[#AEB5C2] border-[#3A3E47]'
+                    }`}
+                  >
+                    {t('فقط التحديد والليزر', 'Overlay Only')}
+                  </button>
+                )}
               </div>
             </div>
           )}

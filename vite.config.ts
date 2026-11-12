@@ -46,6 +46,8 @@ function preventViteHmrReloadLoop(): Plugin {
 
 export default defineConfig(() => {
   return {
+    clearScreen: false,
+    envPrefix: ['VITE_', 'TAURI_ENV_', 'TAURI_'],
     plugins: [preventViteHmrReloadLoop(), react(), tailwindcss()],
     resolve: {
       alias: {
@@ -53,8 +55,10 @@ export default defineConfig(() => {
       },
     },
     server: {
+      port: 3000,
+      strictPort: true,
       hmr: false,
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      watch: process.env.DISABLE_HMR === 'true' ? null : { ignored: ['**/src-tauri/**'] },
     },
   };
 });

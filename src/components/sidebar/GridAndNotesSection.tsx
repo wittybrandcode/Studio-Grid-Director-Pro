@@ -499,11 +499,12 @@ export const GridAndNotesSection: React.FC<GridAndNotesSectionProps> = React.mem
                       onUpdateProject((prev) => ({
                         ...prev,
                         divisionMode: 'pixels' as GridDivisionMode,
+                        useCustomRectPx: false,
                       }))
                     }
                     title={t('التقسيم حسب حجم المربع بالبكسل (Square px)', 'Divide by Square Size (px)')}
-                    className={`h-7 px-2 text-[10px] font-mono font-bold border rounded-none cursor-pointer transition-colors ${
-                      project.divisionMode === 'pixels'
+                    className={`h-7 px-1.5 text-[10px] font-mono font-bold border rounded-none cursor-pointer transition-colors ${
+                      project.divisionMode === 'pixels' && !project.useCustomRectPx
                         ? 'bg-[#38BDF8] text-[#09131C] border-[#E0F2FE]'
                         : 'bg-[#282C35] hover:bg-[#3E4452] text-[#AEB5C2] border-[#3A3E47]'
                     }`}
@@ -515,11 +516,31 @@ export const GridAndNotesSection: React.FC<GridAndNotesSectionProps> = React.mem
                     onClick={() =>
                       onUpdateProject((prev) => ({
                         ...prev,
+                        divisionMode: 'pixels' as GridDivisionMode,
+                        useCustomRectPx: true,
+                        cellWidthPx: prev.cellWidthPx || prev.squareSizePx || 240,
+                        cellHeightPx: prev.cellHeightPx || prev.squareSizePx || 240,
+                      }))
+                    }
+                    title={t('التقسيم حسب عرض وارتفاع مخصص بالبكسل (Rect W×H px)', 'Divide by Custom Rect Width × Height (px)')}
+                    className={`h-7 px-1.5 text-[10px] font-mono font-bold border rounded-none cursor-pointer transition-colors ${
+                      project.divisionMode === 'pixels' && project.useCustomRectPx
+                        ? 'bg-[#38BDF8] text-[#09131C] border-[#E0F2FE]'
+                        : 'bg-[#282C35] hover:bg-[#3E4452] text-[#AEB5C2] border-[#3A3E47]'
+                    }`}
+                  >
+                    ▭ px
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateProject((prev) => ({
+                        ...prev,
                         divisionMode: 'counts' as GridDivisionMode,
                       }))
                     }
                     title={t('التقسيم حسب عدد الأعمدة والصفوف (Cols × Rows)', 'Divide by Columns × Rows')}
-                    className={`h-7 px-2 text-[10px] font-mono font-bold border rounded-none cursor-pointer transition-colors ${
+                    className={`h-7 px-1.5 text-[10px] font-mono font-bold border rounded-none cursor-pointer transition-colors ${
                       project.divisionMode === 'counts'
                         ? 'bg-[#38BDF8] text-[#09131C] border-[#E0F2FE]'
                         : 'bg-[#282C35] hover:bg-[#3E4452] text-[#AEB5C2] border-[#3A3E47]'
@@ -529,7 +550,7 @@ export const GridAndNotesSection: React.FC<GridAndNotesSectionProps> = React.mem
                   </button>
                 </div>
 
-                {project.divisionMode === 'pixels' ? (
+                {project.divisionMode === 'pixels' && !project.useCustomRectPx ? (
                   <NumericInput
                     value={project.squareSizePx}
                     min={40}
@@ -544,6 +565,35 @@ export const GridAndNotesSection: React.FC<GridAndNotesSectionProps> = React.mem
                     }
                     className="flex-1 min-w-0"
                   />
+                ) : project.divisionMode === 'pixels' && project.useCustomRectPx ? (
+                  <div className="flex-1 grid grid-cols-2 gap-1 min-w-0">
+                    <NumericInput
+                      value={project.cellWidthPx || project.squareSizePx || 240}
+                      min={30}
+                      max={2000}
+                      step={10}
+                      onChange={(val) =>
+                        onUpdateProject((prev) => ({
+                          ...prev,
+                          cellWidthPx: val,
+                          useCustomRectPx: true,
+                        }))
+                      }
+                    />
+                    <NumericInput
+                      value={project.cellHeightPx || project.squareSizePx || 240}
+                      min={30}
+                      max={2000}
+                      step={10}
+                      onChange={(val) =>
+                        onUpdateProject((prev) => ({
+                          ...prev,
+                          cellHeightPx: val,
+                          useCustomRectPx: true,
+                        }))
+                      }
+                    />
+                  </div>
                 ) : (
                   <div className="flex-1 grid grid-cols-2 gap-1 min-w-0">
                     <NumericInput
@@ -650,6 +700,7 @@ export const GridAndNotesSection: React.FC<GridAndNotesSectionProps> = React.mem
                 </select>
 
                 <select
+                  dir="ltr"
                   value={project.numberingSystem}
                   onChange={(e) =>
                     onUpdateProject((prev) => ({

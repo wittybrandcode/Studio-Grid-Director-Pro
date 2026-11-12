@@ -11,6 +11,7 @@ import {
   StudioNoteItem,
   StudioProject,
 } from '../types/studio';
+import { saveStudioBinaryFile } from './tauriBridge';
 
 // Cache for custom uploaded images so Canvas 2D can draw them synchronously
 const customImageCache = new Map<string, HTMLImageElement>();
@@ -1230,9 +1231,23 @@ export function renderStudioCanvas(
     colorCfg.swatchMode === 'color_checker' ||
     (colorCfg.swatchMode === 'solid' && colorCfg.solidFullScreen);
 
+  const ndiCfg = project.ndiConfig;
+  const bgKeyMode = ndiCfg?.bgKeyMode || 'solid';
+  const isTransparentOrChroma = bgKeyMode !== 'solid';
+  const overlayOnlyKey = Boolean(isTransparentOrChroma && ndiCfg?.onlySelectedAndGuidesInAlpha);
+
   ctx.save();
-  ctx.fillStyle = '#090D16';
-  ctx.fillRect(0, 0, compWidth, compHeight);
+  ctx.clearRect(0, 0, compWidth, compHeight);
+  if (bgKeyMode === 'chroma_green') {
+    ctx.fillStyle = '#00FF00';
+    ctx.fillRect(0, 0, compWidth, compHeight);
+  } else if (bgKeyMode === 'chroma_blue') {
+    ctx.fillStyle = '#0000FF';
+    ctx.fillRect(0, 0, compWidth, compHeight);
+  } else if (bgKeyMode !== 'alpha') {
+    ctx.fillStyle = '#090D16';
+    ctx.fillRect(0, 0, compWidth, compHeight);
+  }
 
   const scaleFactor = (fontScale || 100) / 100;
 
@@ -1370,14 +1385,22 @@ export function renderStudioCanvas(
       compHeight,
       computed.cols,
       computed.rows,
+      computed.baseCellWidth,
+      computed.baseCellHeight,
+      project.numberingSystem || 'coordinates',
       project.coloringMode,
       fillStyle,
       gridLineWidth,
       fontScale,
       project.focusedNoteId || '',
       project.divisionMode,
+      project.useCustomRectPx ? '1' : '0',
+      project.cellWidthPx || 0,
+      project.cellHeightPx || 0,
       project.gridRemainderAlign || 'start',
       project.showFractionalCellDimensions !== false ? '1' : '0',
+      bgKeyMode,
+      overlayOnlyKey ? '1' : '0',
       notesSig,
     ].join('|');
 
@@ -1394,21 +1417,29 @@ export function renderStudioCanvas(
       const { x, y, width, height, effectiveColor, displayId, hasCustomColor } = cell;
       const minDim = Math.min(width, height);
 
-      // Cell Fill
-      if (fillStyle === 'badge') {
-        bCtx.fillStyle = (cell.row + cell.col) % 2 === 0 ? '#0F1522' : '#151D2E';
-        bCtx.fillRect(x, y, width, height);
+      if (strokeIndividualBorder && isTransparentOrChroma) {
+        bCtx.clearRect(x, y, width, height);
+      }
 
-        const badgeW = width * 0.74;
-        const badgeH = height * 0.74;
-        const bx = x + (width - badgeW) / 2;
-        const by = y + (height - badgeH) / 2;
+      // Cell Fill (skipped for unselected cells when NDI Overlay-Only Alpha/Chroma mode is active)
+      if (!overlayOnlyKey || hasCustomColor) {
+        if (fillStyle === 'badge') {
+          if (!isTransparentOrChroma) {
+            bCtx.fillStyle = (cell.row + cell.col) % 2 === 0 ? '#0F1522' : '#151D2E';
+            bCtx.fillRect(x, y, width, height);
+          }
 
-        bCtx.fillStyle = effectiveColor;
-        bCtx.fillRect(bx, by, badgeW, badgeH);
-      } else {
-        bCtx.fillStyle = effectiveColor;
-        bCtx.fillRect(x, y, width, height);
+          const badgeW = width * 0.74;
+          const badgeH = height * 0.74;
+          const bx = x + (width - badgeW) / 2;
+          const by = y + (height - badgeH) / 2;
+
+          bCtx.fillStyle = effectiveColor;
+          bCtx.fillRect(bx, by, badgeW, badgeH);
+        } else {
+          bCtx.fillStyle = effectiveColor;
+          bCtx.fillRect(x, y, width, height);
+        }
       }
 
       // Subtle inner frame for selected/colored squares
@@ -1425,7 +1456,9 @@ export function renderStudioCanvas(
       }
 
       // Adaptive Level-of-Detail (LOD) for coordinate labels on dense grids
-      const shouldRenderLabel = minDim >= 14 || hasCustomColor || !isHighDensity;
+      const shouldRenderLabel =
+        (!overlayOnlyKey || hasCustomColor) &&
+        (minDim >= 14 || hasCustomColor || !isHighDensity);
       if (shouldRenderLabel) {
         const cx = x + width / 2;
         const cy = y + height / 2;
@@ -1518,7 +1551,7 @@ export function renderStudioCanvas(
       for (let i = 0; i < totalCells; i++) {
         const cell = computed.cells[i];
         const prevColor = cachedEntry.cellColorsSnapshot.get(cell.key);
-        const currSig = `${cell.effectiveColor}|${cell.hasCustomColor ? 1 : 0}`;
+        const currSig = `${cell.effectiveColor}|${cell.hasCustomColor ? 1 : 0}|${cell.displayId}`;
         if (prevColor !== currSig) {
           dirtyCells.push(cell);
           if (dirtyCells.length > 64) {
@@ -1540,7 +1573,7 @@ export function renderStudioCanvas(
           drawSingleCellToBaseCtx(bCtx, dCell, true, true);
           cachedEntry.cellColorsSnapshot.set(
             dCell.key,
-            `${dCell.effectiveColor}|${dCell.hasCustomColor ? 1 : 0}`
+            `${dCell.effectiveColor}|${dCell.hasCustomColor ? 1 : 0}|${dCell.displayId}`
           );
         }
         bCtx.restore();
@@ -1576,7 +1609,7 @@ export function renderStudioCanvas(
           drawSingleCellToBaseCtx(bCtx, cell, isFocusedInSpotlight, false);
           nextColorSnapshot.set(
             cell.key,
-            `${cell.effectiveColor}|${cell.hasCustomColor ? 1 : 0}`
+            `${cell.effectiveColor}|${cell.hasCustomColor ? 1 : 0}|${cell.displayId}`
           );
 
           if (gridPath) {
@@ -3695,10 +3728,14 @@ export function exportScreenNativePixelMapPng(
   });
 
   const safeName = screen.name.replace(/[^\w\u0600-\u06FF-]+/g, '_');
-  const link = document.createElement('a');
-  link.download = `PixelMap_${String(screenOrderIndex + 1).padStart(2, '0')}_${safeName}_${screen.compWidth}x${screen.compHeight}.png`;
-  link.href = offCanvas.toDataURL('image/png');
-  link.click();
+  const fileName = `PixelMap_${String(screenOrderIndex + 1).padStart(2, '0')}_${safeName}_${screen.compWidth}x${screen.compHeight}.png`;
+  offCanvas.toBlob((blob) => {
+    if (!blob) return;
+    void saveStudioBinaryFile(blob, fileName, {
+      filterName: 'PNG Calibration Image (.png)',
+      extensions: ['png'],
+    });
+  }, 'image/png');
 }
 
 /**
@@ -3780,10 +3817,14 @@ export function exportAllScreensPixelMapPack(
       }
 
       const safeWs = workspaceName.replace(/[^\w\u0600-\u06FF-]+/g, '_');
-      const link = document.createElement('a');
-      link.download = `${safeWs}_Composite_Wall_${rawW}x${rawH}.png`;
-      link.href = compCanvas.toDataURL('image/png');
-      link.click();
+      const fileName = `${safeWs}_Composite_Wall_${rawW}x${rawH}.png`;
+      compCanvas.toBlob((blob) => {
+        if (!blob) return;
+        void saveStudioBinaryFile(blob, fileName, {
+          filterName: 'PNG Calibration Image (.png)',
+          extensions: ['png'],
+        });
+      }, 'image/png');
     }, screens.length * 240);
   }
 }

@@ -166,6 +166,25 @@ export const PROCESSOR_ZONE_COLORS: string[] = [
   '#FACC15', // Yellow
 ];
 
+export type NdiBgKeyMode = 'solid' | 'alpha' | 'chroma_green' | 'chroma_blue';
+export type NdiFrameRate = 25 | 30 | 50 | 60;
+
+export interface NdiChannelConfig {
+  enabled: boolean;
+  sourceName: string; // e.g. "SGD_SCREEN_1"
+  frameRate: NdiFrameRate; // 25 | 30 | 50 | 60
+  bgKeyMode: NdiBgKeyMode; // 'solid' | 'alpha' | 'chroma_green' | 'chroma_blue'
+  onlySelectedAndGuidesInAlpha: boolean; // When bgKeyMode !== 'solid', hide unselected background tiles so only selected tiles, notes, rulers, crosshair, and laser overlay on top of live video
+}
+
+export const DEFAULT_NDI_CONFIG: NdiChannelConfig = {
+  enabled: false,
+  sourceName: 'SGD_SCREEN_1',
+  frameRate: 30,
+  bgKeyMode: 'solid',
+  onlySelectedAndGuidesInAlpha: false,
+};
+
 export interface CenterOverlayConfig {
   showLines: boolean;
   showCircle: boolean;
@@ -355,6 +374,7 @@ export interface StudioProject {
   colorCalibration?: ColorCalibrationConfig;
   cabinetConfig?: CabinetAndPitchConfig;
   processorZones?: ProcessorZone[];
+  ndiConfig?: NdiChannelConfig;
   rulers?: StudioRuler[];
   drawings?: FreehandDrawingItem[];
   wallPosX?: number; // X position in studio pixels on the Multi-Screen Stage
@@ -661,6 +681,7 @@ export const DEFAULT_STUDIO_PROJECT: StudioProject = {
     pixelRulers: false,
   },
   centerConfig: { ...DEFAULT_CENTER_CONFIG },
+  ndiConfig: { ...DEFAULT_NDI_CONFIG },
   rulers: [],
   overrides: {
     '2-2': {

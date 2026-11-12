@@ -34,6 +34,8 @@ import {
   FrameCorners,
   HandGrabbing,
   IdentificationBadge,
+  Info,
+  Keyboard,
   Lightning,
   LockKey,
   MagnifyingGlass,
@@ -65,6 +67,7 @@ import {
   DEFAULT_CABINET_CONFIG,
   DEFAULT_CENTER_CONFIG,
   DEFAULT_COLOR_CALIBRATION,
+  DEFAULT_NDI_CONFIG,
   DEFAULT_STUDIO_PROJECT,
   FreehandDrawingItem,
   FreehandDrawMode,
@@ -108,13 +111,26 @@ import {
   triggerSgdDownload,
 } from './utils/sgdArchive';
 import {
+  emitTauriSyncEvent,
+  isTauriRuntime,
+  listenTauriSyncEvent,
+  openStudioNativeProjectFile,
+  openTauriLiveOutputWindow,
+  pushTauriNdiCanvasFrame,
+  saveStudioBinaryFile,
+} from './utils/tauriBridge';
+import {
   SavedProjectsModal,
   SgdImportDecisionModal,
   SgdImportDecisionMode,
 } from './components/StudioModals';
 import { ColorReportModal } from './components/ColorReportModal';
 import { ColorPickerModal } from './components/ColorPickerModal';
-import { TechnicalPatchSheetModal, ShortcutsHudModal } from './components/EngineeringModals';
+import {
+  TechnicalPatchSheetModal,
+  ShortcutsHudModal,
+  HelpAndAboutModal,
+} from './components/EngineeringModals';
 import { LiveOutputView } from './components/LiveOutputView';
 import { MultiScreenWallStage } from './components/MultiScreenWallStage';
 import { ScreensManagerSection } from './components/sidebar/ScreensManagerSection';
@@ -208,6 +224,11 @@ function normalizeScreen(raw: Partial<StudioProject>, fallbackIndex = 1): Studio
     cabinetConfig: {
       ...DEFAULT_CABINET_CONFIG,
       ...(raw.cabinetConfig || {}),
+    },
+    ndiConfig: {
+      ...DEFAULT_NDI_CONFIG,
+      sourceName: `SGD_${(raw.id || `SCREEN_${fallbackIndex}`).toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`,
+      ...(raw.ndiConfig || {}),
     },
     processorZones: Array.isArray(raw.processorZones) ? raw.processorZones : [],
     rulers: Array.isArray(raw.rulers) ? raw.rulers : [],
@@ -548,6 +569,7 @@ export function App() {
   const [isColorReportModalOpen, setIsColorReportModalOpen] = useState<boolean>(false);
   const [isPatchSheetModalOpen, setIsPatchSheetModalOpen] = useState<boolean>(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
   const [pendingImport, setPendingImport] = useState<
     Extract<ParsedSgdImportResult, { ok: true }> | null
   >(null);
@@ -682,34 +704,44 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveRoute.isLiveOutput]);
 
-  // BroadcastChannel setup
+  // BroadcastChannel + Tauri Native Event Bus setup
   useEffect(() => {
+    const handleSyncMsg = (payload: SyncPayload) => {
+      if (!payload) return;
+      if (payload.type === 'OUTPUT_HEARTBEAT' && payload.screenId) {
+        setLiveOutputHeartbeats((prev) => ({
+          ...prev,
+          [payload.screenId!]: Date.now(),
+        }));
+      }
+    };
+
+    const unlistenTauri = listenTauriSyncEvent(handleSyncMsg);
+    const pingMsg: SyncPayload = {
+      type: 'PING',
+      timestamp: Date.now(),
+    };
+    emitTauriSyncEvent(pingMsg);
+
     try {
       const ch = new BroadcastChannel(CHANNEL_NAME);
       broadcastChannelRef.current = ch;
 
       ch.onmessage = (event: MessageEvent<SyncPayload>) => {
-        const payload = event.data;
-        if (!payload) return;
-        if (payload.type === 'OUTPUT_HEARTBEAT' && payload.screenId) {
-          setLiveOutputHeartbeats((prev) => ({
-            ...prev,
-            [payload.screenId!]: Date.now(),
-          }));
-        }
+        handleSyncMsg(event.data);
       };
 
-      ch.postMessage({
-        type: 'PING',
-        timestamp: Date.now(),
-      } satisfies SyncPayload);
+      ch.postMessage(pingMsg);
 
       return () => {
+        unlistenTauri();
         ch.close();
         broadcastChannelRef.current = null;
       };
     } catch {
-      return undefined;
+      return () => {
+        unlistenTauri();
+      };
     }
   }, []);
 
@@ -763,6 +795,7 @@ export function App() {
       project,
       timestamp: Date.now(),
     };
+    emitTauriSyncEvent(syncMsg);
     broadcastChannelRef.current?.postMessage(syncMsg);
     pushSyncToServer(screens, activeScreenId, project);
   }, [screens, activeScreenId, project, liveRoute.isLiveOutput, isLiveFrozen, pushSyncToServer]);
@@ -1199,6 +1232,7 @@ export function App() {
         screenId: targetScreenId,
         timestamp: Date.now(),
       };
+      emitTauriSyncEvent(msg);
       broadcastChannelRef.current?.postMessage(msg);
       fetch('/api/screens/sync', {
         method: 'POST',
@@ -1259,6 +1293,7 @@ export function App() {
           project: updatedScreen,
           timestamp: Date.now(),
         };
+        emitTauriSyncEvent(syncMsg);
         broadcastChannelRef.current?.postMessage(syncMsg);
         pushSyncToServer(nextScreens, activeScreenId, updatedScreen, true);
       }
@@ -1290,6 +1325,7 @@ export function App() {
         blinkingCellKeys: cellKeys,
         timestamp: Date.now(),
       };
+      emitTauriSyncEvent(startMsg);
       broadcastChannelRef.current?.postMessage(startMsg);
       fetch('/api/screens/sync', {
         method: 'POST',
@@ -1310,6 +1346,7 @@ export function App() {
           blinkingCellKeys: [],
           timestamp: Date.now(),
         };
+        emitTauriSyncEvent(stopMsg);
         broadcastChannelRef.current?.postMessage(stopMsg);
         fetch('/api/screens/sync', {
           method: 'POST',
@@ -1384,13 +1421,17 @@ export function App() {
     pushSyncToServer(nextScreens, newId, newScreen, true);
 
     if (openOutputImmediately) {
-      const a = document.createElement('a');
-      a.href = `#live-output?screen=${encodeURIComponent(newId)}`;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if (isTauriRuntime()) {
+        void openTauriLiveOutputWindow(newScreen);
+      } else {
+        const a = document.createElement('a');
+        a.href = `#live-output?screen=${encodeURIComponent(newId)}`;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
     }
 
     showToast(t(`تم إنشاء "${finalName}" وربطها بنجاح`, `Created "${finalName}"`));
@@ -1815,6 +1856,10 @@ export function App() {
           setContextMenu(null);
           return;
         }
+        if (isHelpModalOpen) {
+          setIsHelpModalOpen(false);
+          return;
+        }
         if (isShortcutsModalOpen) {
           setIsShortcutsModalOpen(false);
           return;
@@ -1942,6 +1987,7 @@ export function App() {
     pendingImport,
     isContextColorPickerOpen,
     contextMenu,
+    isHelpModalOpen,
     isShortcutsModalOpen,
     isPatchSheetModalOpen,
     isColorReportModalOpen,
@@ -2170,6 +2216,30 @@ export function App() {
     };
   }, [editorIdentifyFlash, project.overlays?.movingSyncBar, paintEditorAndMinimapCanvases]);
 
+  // Native Tauri NDI Frame Streamer Loop (pushes RGBA8 frames from active screen canvas at configured FPS when NDI is enabled)
+  useEffect(() => {
+    const ndiCfg = project.ndiConfig;
+    if (!ndiCfg?.enabled || !isTauriRuntime()) return undefined;
+
+    const fps = ndiCfg.frameRate || 30;
+    const intervalMs = Math.max(16, Math.round(1000 / fps));
+    const srcName = ndiCfg.sourceName?.trim() || `SGD_${project.id}`;
+
+    const timer = window.setInterval(() => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        void pushTauriNdiCanvasFrame(project.id, srcName, canvas, fps);
+      }
+    }, intervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [
+    project.id,
+    project.ndiConfig?.enabled,
+    project.ndiConfig?.sourceName,
+    project.ndiConfig?.frameRate,
+  ]);
+
   // Compute Color Telemetry debounced when project or colorCalibration changes (only when Color tab or Report modal is open)
   useEffect(() => {
     if (activeSidebarTab !== 'colors' && activeSidebarTab !== 'all' && !isColorReportModalOpen) {
@@ -2190,15 +2260,17 @@ export function App() {
     isColorReportModalOpen,
   ]);
 
-  // Send laser pointer updates to server + BroadcastChannel for the active screen (throttled to 40fps with trailing flush)
+  // Send laser pointer updates to server + BroadcastChannel + Tauri Event Bus for the active screen
   const emitLaserMove = useCallback(
     (nextLaser: LaserPointerState, immediate = false) => {
-      broadcastChannelRef.current?.postMessage({
+      const laserMsg: SyncPayload = {
         type: 'LASER_MOVE',
         screenId: project.id,
         laser: nextLaser,
         timestamp: Date.now(),
-      } satisfies SyncPayload);
+      };
+      emitTauriSyncEvent(laserMsg);
+      broadcastChannelRef.current?.postMessage(laserMsg);
 
       const sendToServer = (stateToSend: LaserPointerState) => {
         lastLaserTimeRef.current = Date.now();
@@ -3221,15 +3293,15 @@ export function App() {
 
     offscreen.toBlob((blob) => {
       if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project.name}_${project.compWidth}x${project.compHeight}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast(t('تم تحميل صورة PNG', 'PNG Downloaded'));
+      const fileName = `${project.name}_${project.compWidth}x${project.compHeight}.png`;
+      void saveStudioBinaryFile(blob, fileName, {
+        filterName: 'PNG Calibration Image (.png)',
+        extensions: ['png'],
+      }).then((res) => {
+        if (res.saved) {
+          showToast(t('تم حفظ صورة PNG', 'PNG Saved'));
+        }
+      });
     }, 'image/png');
   };
 
@@ -3516,6 +3588,19 @@ export function App() {
     applyParsedImportResult(result);
   };
 
+  const handleTriggerImportDialog = async () => {
+    if (isTauriRuntime()) {
+      const nativeFile = await openStudioNativeProjectFile();
+      if (nativeFile === 'cancelled') return;
+      if (nativeFile instanceof File) {
+        const result = await readSgdOrJsonFile(nativeFile);
+        applyParsedImportResult(result);
+        return;
+      }
+    }
+    fileInputRef.current?.click();
+  };
+
   const handleWorkspaceDropFile = async (e: React.DragEvent<HTMLDivElement>) => {
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
@@ -3627,10 +3712,15 @@ export function App() {
 
       {/* Top Bar — Unified Single-Side Layout: Radiant Green SGD Badge + Smartly Grouped Task Icons */}
       <header className="h-11 shrink-0 flex items-center justify-start gap-1.5 px-3 bg-[#2A2E37] border-b border-[#434853] overflow-x-auto">
-        {/* Brand Badge: SGD with Thick Radiant Green (#8CC63F) Letters & Tooltip */}
-        <div
-          title="Studio Grid Director Pro (.sgd Native Engine)"
-          className="group relative h-8 px-3 bg-[#181B20] hover:bg-[#222730] border border-[#8CC63F]/65 hover:border-[#8CC63F] rounded-none flex items-center justify-center cursor-default select-none shrink-0 transition-colors"
+        {/* Brand Badge: SGD with Thick Radiant Green (#8CC63F) Letters & Click to Open Help/About Modal */}
+        <button
+          type="button"
+          onClick={() => setIsHelpModalOpen(true)}
+          title={t(
+            'حول التطبيق ومعلومات التواصل مع المطور — Studio Grid Director Pro',
+            'About & Developer Contact — Studio Grid Director Pro'
+          )}
+          className="group relative h-8 px-3 bg-[#181B20] hover:bg-[#222730] border border-[#8CC63F]/65 hover:border-[#8CC63F] rounded-none flex items-center justify-center cursor-pointer select-none shrink-0 transition-colors"
         >
           <span
             dir="ltr"
@@ -3647,9 +3737,9 @@ export function App() {
             dir="ltr"
             className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute top-full mt-1.5 start-0 z-50 px-2.5 py-1 bg-[#14171C] border border-[#8CC63F] text-[11px] font-mono font-bold text-[#8CC63F] whitespace-nowrap shadow-xl rounded-none"
           >
-            Studio Grid Director Pro (.sgd)
+            Studio Grid Director Pro — Help &amp; Info
           </div>
-        </div>
+        </button>
 
         <div className="h-5 w-px bg-[#434853] mx-0.5 shrink-0" />
 
@@ -3690,7 +3780,7 @@ export function App() {
 
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => void handleTriggerImportDialog()}
             className="w-7 h-7 flex items-center justify-center rounded-none bg-[#1B2C3B] hover:bg-[#274056] border border-[#2C4C66] text-[#7DD3FC] hover:text-[#E0F2FE] shrink-0 cursor-pointer transition-colors"
             title={t(
               '[ملفات المشروع] استيراد حزمة مشروع (.sgd أو .json) — يدعم السحب والإفلات المباشر',
@@ -4015,6 +4105,16 @@ export function App() {
                     ...prev,
                     overlays: {
                       ...prev.overlays,
+                      ...patch,
+                    },
+                  }))
+                }
+                onUpdateNdiConfig={(patch) =>
+                  handleUpdateProject((prev) => ({
+                    ...prev,
+                    ndiConfig: {
+                      ...DEFAULT_NDI_CONFIG,
+                      ...(prev.ndiConfig || {}),
                       ...patch,
                     },
                   }))
@@ -5652,8 +5752,12 @@ export function App() {
                 href={`#live-output?screen=${encodeURIComponent(project.id)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => {
+                onClick={(e) => {
                   pushSyncToServer(screens, activeScreenId, project, true);
+                  if (isTauriRuntime()) {
+                    e.preventDefault();
+                    void openTauriLiveOutputWindow(project);
+                  }
                 }}
                 title={t(`[البث المباشر والتعريف] فتح شاشة العرض المباشر: ${project.name}`, `[Live Output] Open Live Display: ${project.name}`)}
                 className="w-7 h-7 flex items-center justify-center text-[#FFFFFF] bg-[#E11D48] hover:bg-[#F43F5E] border border-[#FDA4AF] rounded-none shrink-0 transition-colors"
@@ -5688,7 +5792,7 @@ export function App() {
         onDeleteWorkspace={handleDeleteWorkspace}
         onExportWorkspaceJson={handleExportWorkspaceJson}
         onExportCurrentScreenJson={handleExportCurrentScreenJson}
-        onImportJsonClick={() => fileInputRef.current?.click()}
+        onImportJsonClick={() => void handleTriggerImportDialog()}
         onImportJsonText={handleImportJsonText}
         onLoadSingleTemplate={(proj) => {
           setProject((prev) => ({
@@ -5779,6 +5883,13 @@ export function App() {
         }
         onOpenPatchSheet={() => setIsPatchSheetModalOpen(true)}
         onExport1to1Png={() => exportScreenNativePixelMapPng(project)}
+      />
+
+      {/* Application Guide & Developer Contact Modal (Opened by clicking the SGD Logo) */}
+      <HelpAndAboutModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        lang={lang}
       />
     </div>
   );

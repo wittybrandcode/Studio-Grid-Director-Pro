@@ -18,6 +18,7 @@ import {
   ComputedGridResult,
   computePhysicalWallMetrics,
 } from '../utils/gridEngine';
+import { saveStudioBinaryFile } from '../utils/tauriBridge';
 
 interface ColorReportModalProps {
   isOpen: boolean;
@@ -133,14 +134,11 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
     const blob = new Blob([JSON.stringify(reportPayload, null, 2)], {
       type: 'application/json',
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Color_Report_${project.name.replace(/\s+/g, '_')}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const fileName = `Color_Report_${project.name.replace(/\s+/g, '_')}.json`;
+    void saveStudioBinaryFile(blob, fileName, {
+      filterName: 'JSON Calibration Report (.json)',
+      extensions: ['json'],
+    });
   };
 
   // 2. Export Formatted Text Report (.txt)
@@ -211,14 +209,11 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
     ];
 
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Calibration_Report_${project.name.replace(/\s+/g, '_')}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const fileName = `Calibration_Report_${project.name.replace(/\s+/g, '_')}.txt`;
+    void saveStudioBinaryFile(blob, fileName, {
+      filterName: 'Text Calibration Report (.txt)',
+      extensions: ['txt'],
+    });
   };
 
   // 3. Export Visual PNG Technical Report Card (Canvas Snapshot + Full Telemetry Footer)
@@ -341,14 +336,11 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
 
     out.toBlob((blob) => {
       if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Calibration_Report_Card_${project.name.replace(/\s+/g, '_')}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const fileName = `Calibration_Report_Card_${project.name.replace(/\s+/g, '_')}.png`;
+      void saveStudioBinaryFile(blob, fileName, {
+        filterName: 'PNG Calibration Report Card (.png)',
+        extensions: ['png'],
+      });
     }, 'image/png');
   };
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FileSpreadsheet,
   Printer,
@@ -17,8 +17,16 @@ import {
   LayoutGrid,
   Crosshair,
   Sparkles,
+  HelpCircle,
+  Phone,
+  ExternalLink,
+  Copy,
+  Check,
+  Radio,
+  Palette,
+  Layers,
 } from 'lucide-react';
-import { StudioProject, StudioNoteItem } from '../types/studio';
+import { StudioProject, StudioNoteItem, UILanguage } from '../types/studio';
 import {
   computeGrid,
   computePhysicalWallMetrics,
@@ -628,3 +636,195 @@ export const ShortcutsHudModal: React.FC<ShortcutsHudModalProps> = ({
     </div>
   );
 };
+
+interface HelpAndAboutModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  lang?: UILanguage;
+}
+
+export const HelpAndAboutModal: React.FC<HelpAndAboutModalProps> = ({
+  isOpen,
+  onClose,
+  lang = 'ar',
+}) => {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const isAr = lang === 'ar';
+  const t = (ar: string, en: string) => (isAr ? ar : en);
+
+  const handleCopy = (key: string, value: string) => {
+    try {
+      void navigator.clipboard.writeText(value);
+      setCopiedField(key);
+      window.setTimeout(() => {
+        setCopiedField((prev) => (prev === key ? null : prev));
+      }, 1800);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
+  const GITHUB_URL = 'https://github.com/wittybrandcode/Studio-Grid-Director-Pro';
+  const FACEBOOK_URL = 'https://www.facebook.com/most.toufik';
+  const PHONE_NUMBER = '0561380844';
+
+  return (
+    <div
+      className="fixed inset-0 z-[130] bg-black/75 flex items-center justify-center p-4"
+      dir={isAr ? 'rtl' : 'ltr'}
+      onClick={onClose}
+    >
+      <div
+        className="bg-[#181A20] border border-[#3E4452] rounded-none w-full max-w-md shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 bg-[#20232B] border-b border-[#343946]">
+          <div className="flex items-center gap-2.5">
+            <div
+              dir="ltr"
+              style={{
+                color: '#8CC63F',
+                WebkitTextStroke: '0.35px #8CC63F',
+              }}
+              className="px-2 py-1 bg-[#14171C] border border-[#8CC63F]/70 font-display text-xs font-black tracking-widest"
+            >
+              SGD
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-[#F3F5F8]">
+                Studio Grid Director Pro
+              </h2>
+              <p className="text-[11px] text-[#9AA1AE]">
+                {t('حول التطبيق ومعلومات التواصل', 'About & Developer Contact')}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 bg-[#2A2E39] hover:bg-[#DC2626] text-[#E6E9F0] hover:text-white transition-colors cursor-pointer"
+            title={t('إغلاق', 'Close')}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 space-y-5">
+          {/* Simple Explanation */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-[#8CC63F]">
+              {t('نبذة عن التطبيق', 'About the Application')}
+            </h3>
+            <p className="text-xs text-[#D0D5DF] leading-relaxed">
+              {t(
+                'أداة هندسية احترافية لمعايرة شاشات الـ LED العملاقة وإدارة شبكات البث التلفزيوني والمسرحي. تتيح إنشاء خرائط البكسل بدقة 1:1، حساب أحمال الطاقة والكابينات، تحديد المربعات والملاحظات، وبث الإشارة المباشرة عبر نوافذ العرض أو قنوات NDI.',
+                'Professional engineering tool for calibrating LED video walls and broadcast grids. Supports 1:1 pixel mapping, cabinet & power calculation, cell annotations, and live output via native windows or NDI channels.'
+              )}
+            </p>
+          </div>
+
+          <div className="h-px bg-[#2C313D]" />
+
+          {/* Developer Contact Info */}
+          <div className="space-y-2.5">
+            <h3 className="text-xs font-bold text-[#F3F5F8]">
+              {t('التواصل مع المطور', 'Developer Contact')}
+            </h3>
+
+            <div className="space-y-2">
+              {/* GitHub */}
+              <div className="flex items-center justify-between gap-2 bg-[#20242D] border border-[#323846] px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[10px] text-[#9AA1AE] mb-0.5">GitHub</div>
+                  <a
+                    href={GITHUB_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    dir="ltr"
+                    className="text-xs font-mono text-[#38BDF8] hover:underline truncate block"
+                  >
+                    github.com/wittybrandcode/Studio-Grid-Director-Pro
+                  </a>
+                </div>
+                <a
+                  href={GITHUB_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 text-[11px] font-bold bg-[#2A303C] hover:bg-[#38BDF8] text-[#E6E9F0] hover:text-[#111317] transition-colors shrink-0 flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>{t('فتح', 'Open')}</span>
+                </a>
+              </div>
+
+              {/* Facebook */}
+              <div className="flex items-center justify-between gap-2 bg-[#20242D] border border-[#323846] px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[10px] text-[#9AA1AE] mb-0.5">Facebook</div>
+                  <a
+                    href={FACEBOOK_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    dir="ltr"
+                    className="text-xs font-mono text-[#60A5FA] hover:underline truncate block"
+                  >
+                    facebook.com/most.toufik
+                  </a>
+                </div>
+                <a
+                  href={FACEBOOK_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 text-[11px] font-bold bg-[#2A303C] hover:bg-[#60A5FA] text-[#E6E9F0] hover:text-[#111317] transition-colors shrink-0 flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>{t('فتح', 'Open')}</span>
+                </a>
+              </div>
+
+              {/* Phone */}
+              <div className="flex items-center justify-between gap-2 bg-[#20242D] border border-[#323846] px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[10px] text-[#9AA1AE] mb-0.5">
+                    {t('رقم الهاتف', 'Phone Number')}
+                  </div>
+                  <a
+                    href={`tel:${PHONE_NUMBER}`}
+                    dir="ltr"
+                    className="text-sm font-mono font-bold text-[#4ADE80] tracking-wider block"
+                  >
+                    {PHONE_NUMBER}
+                  </a>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopy('phone', PHONE_NUMBER)}
+                  className="px-2.5 py-1 text-[11px] font-bold bg-[#2A303C] hover:bg-[#4ADE80] text-[#E6E9F0] hover:text-[#111317] transition-colors shrink-0 flex items-center gap-1 cursor-pointer"
+                >
+                  {copiedField === 'phone' ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{t('تم النسخ', 'Copied')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{t('نسخ', 'Copy')}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+

@@ -1,5 +1,6 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { SavedWorkspaceProject, StudioProject } from '../types/studio';
+import { saveStudioBinaryFile } from './tauriBridge';
 
 export interface SgdAssetDescriptor {
   id: string;
@@ -362,17 +363,13 @@ export function buildSingleScreenSgdArchive(
 }
 
 /**
- * Trigger browser download for a generated .sgd or .json Blob
+ * Trigger native Tauri Save Dialog or browser download for a generated .sgd or .json Blob
  */
 export function triggerSgdDownload(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  void saveStudioBinaryFile(blob, fileName, {
+    filterName: 'Studio Grid Director Archive (.sgd)',
+    extensions: ['sgd', 'json'],
+  });
 }
 
 /**

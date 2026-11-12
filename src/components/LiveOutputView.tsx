@@ -11,6 +11,14 @@ import {
   computeQuickFlashYellowIntensity,
   renderStudioCanvas,
 } from '../utils/gridEngine';
+import {
+  closeCurrentTauriWindowIfSecondary,
+  emitTauriSyncEvent,
+  isTauriRuntime,
+  listenTauriSyncEvent,
+  pushTauriNdiCanvasFrame,
+  toggleStudioFullscreen,
+} from '../utils/tauriBridge';
 
 const SCREENS_STORAGE_KEY = 'studio_grid_director_screens_v4';
 const LEGACY_STORAGE_KEY = 'studio_grid_director_active_project_v3';
@@ -52,6 +60,7 @@ function loadScreenFromLocalFallback(targetScreenId?: string | null): StudioProj
 export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
   screenId,
   initialProject,
+  onExitLiveOutput,
 }) => {
   const [project, setProject] = useState<StudioProject>(() => {
     if (initialProject && (!screenId || initialProject.id === screenId)) {
@@ -81,10 +90,34 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
     }, 2000);
   };
 
-  // Update browser tab title so each open screen window is identifiable on the OS taskbar
+  // Update browser tab / Tauri window title (tags with NDI_SOURCE :: when NDI is active for NDI Screen Capture / OBS discovery)
   useEffect(() => {
-    document.title = `${project.name} (${project.compWidth}×${project.compHeight})`;
-  }, [project.name, project.compWidth, project.compHeight]);
+    const ndiCfg = project.ndiConfig;
+    if (ndiCfg?.enabled) {
+      const srcName = ndiCfg.sourceName?.trim() || `SGD_${project.id}`;
+      document.title = `NDI_SOURCE :: ${srcName} — ${project.name} (${project.compWidth}×${project.compHeight})`;
+    } else {
+      document.title = `${project.name} (${project.compWidth}×${project.compHeight})`;
+    }
+  }, [project.id, project.name, project.compWidth, project.compHeight, project.ndiConfig]);
+
+  // Keyboard shortcuts for Tauri & Browser Live Output windows (F11: toggle fullscreen, Esc: exit fullscreen or close secondary window)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        void toggleStudioFullscreen();
+      } else if (e.key === 'Escape') {
+        if (onExitLiveOutput) {
+          onExitLiveOutput();
+          return;
+        }
+        void closeCurrentTauriWindowIfSecondary();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onExitLiveOutput]);
 
   // 1. Real-Time Server-Sent Events (SSE) + Initial Server Fetch (works across partitioned iframes, tabs, and monitors)
   useEffect(() => {
@@ -102,49 +135,54 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
         }
       })
       .catch(() => {
-        // ignore network error
+        // ignore network error (e.g. serverless Tauri runtime)
       });
 
     // Subscribe to real-time SSE stream for this specific screenId
-    const es = new EventSource(
-      `/api/screens-stream?role=output&screenId=${encodeURIComponent(targetQueryId)}`
-    );
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(
+        `/api/screens-stream?role=output&screenId=${encodeURIComponent(targetQueryId)}`
+      );
 
-    es.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data) as SyncPayload;
-        if (!payload) return;
+      es.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data) as SyncPayload;
+          if (!payload) return;
 
-        const payloadScreenId = payload.screenId || payload.project?.id;
-        if (screenId && payloadScreenId && payloadScreenId !== screenId) {
-          return;
-        }
-
-        if (payload.type === 'PROJECT_UPDATE' && payload.project) {
-          setProject(payload.project);
-        } else if (payload.type === 'LASER_MOVE') {
-          setLaser(payload.laser || null);
-        } else if (payload.type === 'IDENTIFY_SCREEN') {
-          triggerIdentifyFlash();
-        } else if (payload.type === 'BLINK_CELLS') {
-          if (payload.blinkActive && payload.blinkingCellKeys) {
-            setBlinkingKeys(new Set(payload.blinkingCellKeys));
-          } else {
-            setBlinkingKeys(new Set());
+          const payloadScreenId = payload.screenId || payload.project?.id;
+          if (screenId && payloadScreenId && payloadScreenId !== screenId) {
+            return;
           }
+
+          if (payload.type === 'PROJECT_UPDATE' && payload.project) {
+            setProject(payload.project);
+          } else if (payload.type === 'LASER_MOVE') {
+            setLaser(payload.laser || null);
+          } else if (payload.type === 'IDENTIFY_SCREEN') {
+            triggerIdentifyFlash();
+          } else if (payload.type === 'BLINK_CELLS') {
+            if (payload.blinkActive && payload.blinkingCellKeys) {
+              setBlinkingKeys(new Set(payload.blinkingCellKeys));
+            } else {
+              setBlinkingKeys(new Set());
+            }
+          }
+        } catch {
+          // ignore parse errors
         }
-      } catch {
-        // ignore parse errors
-      }
-    };
+      };
+    } catch {
+      // ignore SSE error in serverless Tauri mode
+    }
 
     return () => {
       isMounted = false;
-      es.close();
+      es?.close();
     };
   }, [screenId]);
 
-  // 2. Direct window.postMessage + BroadcastChannel + Storage fallback
+  // 2. Direct Tauri Event Bus + window.postMessage + BroadcastChannel + Storage fallback
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
     let heartbeatTimer: number | null = null;
@@ -183,6 +221,7 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
         screenId: effectiveScreenId,
         timestamp: Date.now(),
       };
+      emitTauriSyncEvent(hb);
       try {
         channel?.postMessage(hb);
       } catch {
@@ -197,6 +236,8 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
       }
     };
 
+    const unlistenTauri = listenTauriSyncEvent(handleIncomingPayload);
+
     try {
       channel = new BroadcastChannel(CHANNEL_NAME);
       channel.onmessage = (event: MessageEvent<SyncPayload>) => {
@@ -205,7 +246,8 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
       sendHeartbeat();
       heartbeatTimer = window.setInterval(sendHeartbeat, 1500);
     } catch {
-      // ignore
+      sendHeartbeat();
+      heartbeatTimer = window.setInterval(sendHeartbeat, 1500);
     }
 
     const handleWindowMessage = (e: MessageEvent) => {
@@ -231,6 +273,7 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
     window.addEventListener('message', handleWindowMessage);
     window.addEventListener('storage', handleStorage);
     return () => {
+      unlistenTauri();
       if (heartbeatTimer) window.clearInterval(heartbeatTimer);
       if (channel) channel.close();
       window.removeEventListener('message', handleWindowMessage);
@@ -331,8 +374,59 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
     clockTick,
   ]);
 
+  const bgKeyMode = project.ndiConfig?.bgKeyMode || 'solid';
+  const containerBgStyle =
+    bgKeyMode === 'alpha'
+      ? 'transparent'
+      : bgKeyMode === 'chroma_green'
+      ? '#00FF00'
+      : bgKeyMode === 'chroma_blue'
+      ? '#0000FF'
+      : '#000000';
+
+  useEffect(() => {
+    const prevBodyBg = document.body.style.backgroundColor;
+    const prevHtmlBg = document.documentElement.style.backgroundColor;
+    if (bgKeyMode === 'alpha') {
+      document.body.style.backgroundColor = 'transparent';
+      document.documentElement.style.backgroundColor = 'transparent';
+    }
+    return () => {
+      document.body.style.backgroundColor = prevBodyBg;
+      document.documentElement.style.backgroundColor = prevHtmlBg;
+    };
+  }, [bgKeyMode]);
+
+  // Stream NDI frames from Live Output window if NDI is enabled in Tauri
+  useEffect(() => {
+    const ndiCfg = project.ndiConfig;
+    if (!ndiCfg?.enabled || !isTauriRuntime()) return undefined;
+
+    const fps = ndiCfg.frameRate || 30;
+    const intervalMs = Math.max(16, Math.round(1000 / fps));
+    const srcName = ndiCfg.sourceName?.trim() || `SGD_${project.id}`;
+
+    const timer = window.setInterval(() => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        void pushTauriNdiCanvasFrame(project.id, srcName, canvas, fps);
+      }
+    }, intervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [
+    project.id,
+    project.ndiConfig?.enabled,
+    project.ndiConfig?.sourceName,
+    project.ndiConfig?.frameRate,
+  ]);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black overflow-hidden flex items-center justify-center select-none cursor-none">
+    <div
+      onDoubleClick={() => void toggleStudioFullscreen()}
+      style={{ backgroundColor: containerBgStyle }}
+      className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center select-none cursor-none"
+    >
       <canvas
         ref={canvasRef}
         width={project.compWidth}
