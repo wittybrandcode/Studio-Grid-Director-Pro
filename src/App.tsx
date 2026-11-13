@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowClockwise,
   ArrowCounterClockwise,
@@ -34,8 +34,6 @@ import {
   FrameCorners,
   HandGrabbing,
   IdentificationBadge,
-  Info,
-  Keyboard,
   Lightning,
   LockKey,
   MagnifyingGlass,
@@ -61,31 +59,18 @@ import {
   X,
 } from '@phosphor-icons/react';
 import {
-  CenterOverlayConfig,
-  ColorCalibrationConfig,
-  ComputedCell,
   DEFAULT_CABINET_CONFIG,
   DEFAULT_CENTER_CONFIG,
-  DEFAULT_COLOR_CALIBRATION,
   DEFAULT_NDI_CONFIG,
   DEFAULT_STUDIO_PROJECT,
-  FreehandDrawingItem,
   FreehandDrawMode,
   LaserModeType,
-  LaserPointerState,
-  LaserTrailPoint,
-  NoteScope,
-  PRESET_PROJECT_TEMPLATES,
   PROCESSOR_ZONE_COLORS,
   RESOLUTION_PRESETS,
   RULER_COLOR_PALETTE,
-  RulerOrientation,
-  SavedWorkspaceProject,
   SELECTION_COLOR_SWATCHES,
-  StudioNoteItem,
   StudioProject,
   StudioRuler,
-  SyncPayload,
   TestPatternType,
   UILanguage,
 } from './types/studio';
@@ -93,36 +78,19 @@ import {
   analyzeCanvasColorMetrics,
   CanvasColorAnalysisResult,
   computeGrid,
-  computePhysicalWallMetrics,
   computeQuickFlashYellowIntensity,
   exportScreenNativePixelMapPng,
-  findGridIndexFromEdges,
-  isPointInPolygon,
-  pruneStudioCaches,
   renderStudioCanvas,
-  sampleCanvasPixelFast,
 } from './utils/gridEngine';
 import {
-  buildSingleScreenSgdArchive,
-  buildWorkspaceSgdArchive,
-  ParsedSgdImportResult,
-  parseRawJsonString,
-  readSgdOrJsonFile,
-  triggerSgdDownload,
-} from './utils/sgdArchive';
-import {
-  emitTauriSyncEvent,
+  disposeTauriNdiScratchCanvas,
   isTauriRuntime,
-  listenTauriSyncEvent,
-  openStudioNativeProjectFile,
   openTauriLiveOutputWindow,
   pushTauriNdiCanvasFrame,
-  saveStudioBinaryFile,
 } from './utils/tauriBridge';
 import {
   SavedProjectsModal,
   SgdImportDecisionModal,
-  SgdImportDecisionMode,
 } from './components/StudioModals';
 import { ColorReportModal } from './components/ColorReportModal';
 import { ColorPickerModal } from './components/ColorPickerModal';
@@ -131,6 +99,7 @@ import {
   ShortcutsHudModal,
   HelpAndAboutModal,
 } from './components/EngineeringModals';
+import { ResolumeArenaModal } from './components/ResolumeArenaModal';
 import { LiveOutputView } from './components/LiveOutputView';
 import { MultiScreenWallStage } from './components/MultiScreenWallStage';
 import { ScreensManagerSection } from './components/sidebar/ScreensManagerSection';
@@ -138,44 +107,24 @@ import { GridAndNotesSection } from './components/sidebar/GridAndNotesSection';
 import { CenterConfigSection } from './components/sidebar/CenterConfigSection';
 import { RulersManagerSection } from './components/sidebar/RulersManagerSection';
 import { ColorCalibrationSection } from './components/sidebar/ColorCalibrationSection';
+import { getStoredLang, useWorkspaceStorage } from './hooks/useWorkspaceStorage';
+import { useWorkspaceSync } from './hooks/useWorkspaceSync';
+import { CanvasInteractionMode, useLaserAndDrawing } from './hooks/useLaserAndDrawing';
+import {
+  SampledHoveredPixel,
+  useCanvasInteraction,
+  ZOOM_MAX,
+  ZOOM_MIN,
+} from './hooks/useCanvasInteraction';
 
-const WORKSPACE_NAME_KEY = 'studio_grid_director_workspace_name_v4';
-const WORKSPACES_LIBRARY_KEY = 'studio_grid_director_workspaces_v4';
-const SCREENS_STORAGE_KEY = 'studio_grid_director_screens_v4';
-const ACTIVE_SCREEN_ID_KEY = 'studio_grid_director_active_screen_id_v4';
-const ACTIVE_STORAGE_KEY = 'studio_grid_director_active_project_v3';
-const LIBRARY_STORAGE_KEY = 'studio_grid_director_library_v3';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'studio_grid_director_sidebar_width_v1';
 const SIDEBAR_TAB_STORAGE_KEY = 'studio_grid_director_sidebar_tab_v1';
-const CHANNEL_NAME = 'studio_calibration_channel';
 
-type CanvasInteractionMode = 'select' | 'box' | 'draw' | 'pan' | 'laser';
 type SidebarTabId = 'screens' | 'notes' | 'guides' | 'colors' | 'all';
 
 const SIDEBAR_MIN_WIDTH = 290;
 const SIDEBAR_MAX_WIDTH = 680;
 const SIDEBAR_DEFAULT_WIDTH = 360;
-
-const ZOOM_MIN = 0.08;
-const ZOOM_MAX = 6.0;
-const MAX_HISTORY_STEPS = 40;
-
-interface ScreenHistoryStack {
-  past: StudioProject[];
-  future: StudioProject[];
-}
-
-interface ContextMenuState {
-  clientX: number;
-  clientY: number;
-  cellKey: string;
-  displayId: string;
-  effectiveColor: string;
-  existingNoteId: string | null;
-  draftText: string;
-  scope: NoteScope;
-  errorMsg: string | null;
-}
 
 function parseLiveOutputRoute(hash: string): {
   isLiveOutput: boolean;
@@ -199,43 +148,6 @@ function parseLiveOutputRoute(hash: string): {
   return { isLiveOutput: true, screenId: null };
 }
 
-function normalizeScreen(raw: Partial<StudioProject>, fallbackIndex = 1): StudioProject {
-  return {
-    ...DEFAULT_STUDIO_PROJECT,
-    ...raw,
-    id: raw.id || `screen-${Date.now()}-${fallbackIndex}`,
-    name: raw.name || `الشاشة ${fallbackIndex}`,
-    selectionColor: raw.selectionColor || '#FEF08A',
-    notes: Array.isArray(raw.notes) ? raw.notes : [],
-    focusedNoteId: raw.focusedNoteId ?? null,
-    overrides: raw.overrides || {},
-    overlays: {
-      ...DEFAULT_STUDIO_PROJECT.overlays,
-      ...(raw.overlays || {}),
-    },
-    centerConfig: {
-      ...DEFAULT_CENTER_CONFIG,
-      ...(raw.centerConfig || {}),
-    },
-    colorCalibration: {
-      ...DEFAULT_COLOR_CALIBRATION,
-      ...(raw.colorCalibration || {}),
-    },
-    cabinetConfig: {
-      ...DEFAULT_CABINET_CONFIG,
-      ...(raw.cabinetConfig || {}),
-    },
-    ndiConfig: {
-      ...DEFAULT_NDI_CONFIG,
-      sourceName: `SGD_${(raw.id || `SCREEN_${fallbackIndex}`).toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`,
-      ...(raw.ndiConfig || {}),
-    },
-    processorZones: Array.isArray(raw.processorZones) ? raw.processorZones : [],
-    rulers: Array.isArray(raw.rulers) ? raw.rulers : [],
-    drawings: Array.isArray(raw.drawings) ? raw.drawings : [],
-  };
-}
-
 export function App() {
   const [liveRoute, setLiveRoute] = useState<{
     isLiveOutput: boolean;
@@ -252,209 +164,38 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  // Multi-Screen State
-  const [screens, setScreens] = useState<StudioProject[]>(() => {
-    try {
-      const savedScreens = localStorage.getItem(SCREENS_STORAGE_KEY);
-      if (savedScreens) {
-        const parsed = JSON.parse(savedScreens);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((s, idx) => normalizeScreen(s, idx + 1));
-        }
-      }
-      const legacy = localStorage.getItem(ACTIVE_STORAGE_KEY);
-      if (legacy) {
-        const parsedLegacy = JSON.parse(legacy);
-        if (parsedLegacy && parsedLegacy.compWidth) {
-          const first = normalizeScreen(
-            {
-              ...parsedLegacy,
-              id: 'screen-1',
-              name: parsedLegacy.name || 'الشاشة 1 — الرئيسية',
-            },
-            1
-          );
-          const second = normalizeScreen(PRESET_PROJECT_TEMPLATES[1], 2);
-          return [first, second];
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return PRESET_PROJECT_TEMPLATES.map((t, idx) => normalizeScreen(t, idx + 1));
-  });
-
-  const [activeScreenId, setActiveScreenId] = useState<string>(() => {
-    try {
-      const savedId = localStorage.getItem(ACTIVE_SCREEN_ID_KEY);
-      if (savedId) return savedId;
-    } catch {
-      // ignore
-    }
-    return 'screen-1';
-  });
-
-  // Per-Screen Undo/Redo History Stacks
-  const [historyByScreen, setHistoryByScreen] = useState<Record<string, ScreenHistoryStack>>({});
-  const isContinuousGestureRef = useRef<boolean>(false);
-
-  // Track connected Live Output Windows per screenId (from SSE server + BroadcastChannel)
-  const [serverConnectedCounts, setServerConnectedCounts] = useState<Record<string, number>>({});
-  const [liveOutputHeartbeats, setLiveOutputHeartbeats] = useState<Record<string, number>>({});
-
-  // Quick Create Screen Modal/Inline Form State
-  const [isNewScreenModalOpen, setIsNewScreenModalOpen] = useState<boolean>(false);
-  const [newScreenName, setNewScreenName] = useState<string>('');
-  const [newScreenPresetId, setNewScreenPresetId] = useState<string>('fhd');
-
-  // Dragging a ruler directly on the canvas & Smart Snapping
-  const [draggingRulerId, setDraggingRulerId] = useState<string | null>(null);
-  const [snapRulersEnabled, setSnapRulersEnabled] = useState<boolean>(true);
-
-  // Local editor visual feedback when flashing/blinking Live Output
-  const [editorBlinkingKeys, setEditorBlinkingKeys] = useState<Set<string>>(new Set());
-  const [editorBlinkPhaseOn, setEditorBlinkPhaseOn] = useState<boolean>(false);
-  const [editorIdentifyFlash, setEditorIdentifyFlash] = useState<boolean>(false);
-  const [flashingScreenId, setFlashingScreenId] = useState<string | null>(null);
-  const editorIdentifyFlashIntensityRef = useRef<number>(0);
-  const blinkTimeoutRef = useRef<number | null>(null);
-  const identifyTimeoutRef = useRef<number | null>(null);
-  const identifyFlashStartRef = useRef<number>(0);
-
-  // Active Screen derived from screens + activeScreenId
-  const project = useMemo(() => {
-    return screens.find((s) => s.id === activeScreenId) || screens[0] || DEFAULT_STUDIO_PROJECT;
-  }, [screens, activeScreenId]);
-
-  const centerConfig: CenterOverlayConfig = useMemo(
-    () => ({
-      ...DEFAULT_CENTER_CONFIG,
-      ...(project.centerConfig || {}),
-    }),
-    [project.centerConfig]
-  );
-
-  const colorConfig: ColorCalibrationConfig = useMemo(
-    () => ({
-      ...DEFAULT_COLOR_CALIBRATION,
-      ...(project.colorCalibration || {}),
-    }),
-    [project.colorCalibration]
-  );
-
-  const rulers: StudioRuler[] = useMemo(() => project.rulers || [], [project.rulers]);
-
-  // Fine-grained memoization for computeGrid so ruler drags, color sliders, crosshair offsets, and freehand drawings never recompute cells
-  const computed = useMemo(
-    () => computeGrid(project),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      project.id,
-      project.compWidth,
-      project.compHeight,
-      project.divisionMode,
-      project.squareSizePx,
-      project.useCustomRectPx,
-      project.cellWidthPx,
-      project.cellHeightPx,
-      project.columnsCount,
-      project.rowsCount,
-      project.gridRemainderAlign,
-      project.numberingSystem,
-      project.coloringMode,
-      project.overrides,
-      project.notes,
-      project.focusedNoteId,
-    ]
-  );
-
-  const [workspaceName, setWorkspaceName] = useState<string>(() => {
-    try {
-      return localStorage.getItem(WORKSPACE_NAME_KEY) || 'مشروع الاستوديو الرئيسي';
-    } catch {
-      return 'مشروع الاستوديو الرئيسي';
-    }
-  });
+  const [lang, setLang] = useState<UILanguage>(getStoredLang);
 
   useEffect(() => {
     try {
-      localStorage.setItem(WORKSPACE_NAME_KEY, workspaceName);
+      localStorage.setItem('studio_grid_lang', lang);
     } catch {
-      // ignore
+      // ignore storage failure
     }
-  }, [workspaceName]);
+  }, [lang]);
 
-  const [savedWorkspaces, setSavedWorkspaces] = useState<SavedWorkspaceProject[]>(() => {
-    try {
-      const raw = localStorage.getItem(WORKSPACES_LIBRARY_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-      }
-      const legacyRaw = localStorage.getItem(LIBRARY_STORAGE_KEY);
-      if (legacyRaw) {
-        const legacyList = JSON.parse(legacyRaw) as StudioProject[];
-        if (Array.isArray(legacyList) && legacyList.length > 0) {
-          return legacyList.map((p, i) => ({
-            id: p.id || `ws-migrated-${i}`,
-            name: p.name || `مشروع محفوظ ${i + 1}`,
-            updatedAt: p.updatedAt || new Date().toISOString(),
-            activeScreenId: p.id || 'screen-1',
-            screens: [normalizeScreen(p, 1)],
-          }));
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return [];
-  });
+  const t = useCallback((ar: string, en: string) => (lang === 'en' ? en : ar), [lang]);
 
-  // Load saved workspaces from server on mount if local is empty
-  useEffect(() => {
-    fetch('/api/projects', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data && Array.isArray(data.projects) && data.projects.length > 0) {
-          setSavedWorkspaces((prev) => (prev.length === 0 ? data.projects : prev));
-        }
-      })
-      .catch(() => {
-        // ignore
-      });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    window.setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 2800);
   }, []);
-
-  const [lang, setLang] = useState<UILanguage>('ar');
-  const [toolMode, setToolMode] = useState<CanvasInteractionMode>('select');
-  const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-
-  // Right-click Context Menu state
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [isContextColorPickerOpen, setIsContextColorPickerOpen] = useState<boolean>(false);
-
-  // Drag Painting state for single-click / drag selection
-  const [isPaintingSelection, setIsPaintingSelection] = useState<boolean>(false);
-  const [paintMode, setPaintMode] = useState<'select' | 'deselect'>('select');
-
-  // Box / Marquee Selection state
-  const [marqueeRect, setMarqueeRect] = useState<{
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-  } | null>(null);
 
   // Freeze Live Output state (allows director to make local changes before pushing to live screens)
   const [isLiveFrozen, setIsLiveFrozen] = useState<boolean>(false);
 
-  // Global Expand / Collapse signal for sidebar accordion sections
+  // Shared UI & Modal states
+  const [toolMode, setToolMode] = useState<CanvasInteractionMode>('select');
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
   const [expandSignal, setExpandSignal] = useState<{ open: boolean; seq: number }>({
     open: true,
     seq: 0,
   });
 
-  // Sidebar Functional Tab & Resizable Width State
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTabId>(() => {
     try {
       const saved = localStorage.getItem(SIDEBAR_TAB_STORAGE_KEY) as SidebarTabId | null;
@@ -497,1293 +238,14 @@ export function App() {
     }
   }, [sidebarWidth]);
 
-  // Live Studio Clock 1-second tick for editor preview & custom image load trigger
-  const [clockTick, setClockTick] = useState<number>(0);
-  const [customImageLoadedSeq, setCustomImageLoadedSeq] = useState<number>(0);
-
-  // Live Laser state, color, mode & trail/stroke refs
-  const [laser, setLaser] = useState<LaserPointerState | null>(null);
-  const [laserColor, setLaserColor] = useState<string>('#FF2424');
-  const [laserMode, setLaserMode] = useState<LaserModeType>('free');
-  const laserTrailRef = useRef<LaserTrailPoint[]>([]);
-  const laserDrawnStrokeRef = useRef<LaserTrailPoint[]>([]);
-  const laserOriginRef = useRef<{ x: number; y: number } | null>(null);
-  const laserDownRef = useRef<boolean>(false);
-
-  // Freehand Pen & Organic Shape Layer state & 60fps zero-lag draft ref
-  const [drawMode, setDrawMode] = useState<FreehandDrawMode>('polygon');
-  const [drawColor, setDrawColor] = useState<string>('#38BDF8');
-  const [drawStrokeWidth, setDrawStrokeWidth] = useState<number>(4);
-  const draftDrawingRef = useRef<(FreehandDrawingItem & { isLassoTiles?: boolean }) | null>(null);
-
-  // Zoom & Pan state
-  const [zoom, setZoom] = useState<number>(1);
-  const [autoFit, setAutoFit] = useState<boolean>(true);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState<boolean>(false);
-  const panStartRef = useRef<{ clientX: number; clientY: number; panX: number; panY: number }>({
-    clientX: 0,
-    clientY: 0,
-    panX: 0,
-    panY: 0,
-  });
-
-  // Large-Screen Navigation, Multi-Screen Wall Stage & Pure Distraction-Free Mode State
-  const [isPanoramicWallView, setIsPanoramicWallView] = useState<boolean>(false);
-  const [isPureWallMode, setIsPureWallMode] = useState<boolean>(false);
-  const [isMinimapOpen, setIsMinimapOpen] = useState<boolean>(true);
-  const [isDraggingMinimap, setIsDraggingMinimap] = useState<boolean>(false);
-  const [isSearchPopoverOpen, setIsSearchPopoverOpen] = useState<boolean>(false);
-  const [squareSearchQuery, setSquareSearchQuery] = useState<string>('');
-  const minimapRef = useRef<HTMLDivElement | null>(null);
-  const minimapCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Update spatial positions (wallPosX, wallPosY, wallZIndex) of screens on the Multi-Screen Stage
-  const handleUpdateScreensPositions = useCallback(
-    (positions: Record<string, { x: number; y: number; zIndex?: number }>) => {
-      setScreens((prev) =>
-        prev.map((s) => {
-          const pos = positions[s.id];
-          if (!pos) return s;
-          return {
-            ...s,
-            wallPosX: Math.round(pos.x),
-            wallPosY: Math.round(pos.y),
-            wallZIndex: typeof pos.zIndex === 'number' ? pos.zIndex : s.wallZIndex,
-            updatedAt: new Date().toISOString(),
-          };
-        })
-      );
-    },
-    []
-  );
-
-  const activePhysicalMetrics = useMemo(
-    () => computePhysicalWallMetrics(project),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project.compWidth, project.compHeight, project.cabinetConfig]
-  );
-
-  // Modals
-  const [isLibraryModalOpen, setIsLibraryModalOpen] = useState<boolean>(false);
-  const [isColorReportModalOpen, setIsColorReportModalOpen] = useState<boolean>(false);
-  const [isPatchSheetModalOpen, setIsPatchSheetModalOpen] = useState<boolean>(false);
-  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
-  const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
-  const [pendingImport, setPendingImport] = useState<
-    Extract<ParsedSgdImportResult, { ok: true }> | null
-  >(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Live Color Telemetry & Hovered Pixel Sample
-  const [colorMetrics, setColorMetrics] = useState<CanvasColorAnalysisResult>(() =>
-    analyzeCanvasColorMetrics(null)
-  );
-  const [hoveredPixel, setHoveredPixel] = useState<{
-    x: number;
-    y: number;
-    r: number;
-    g: number;
-    b: number;
-    hex: string;
-    ire: number;
-  } | null>(null);
-
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const viewportContainerRef = useRef<HTMLDivElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const contextInputRef = useRef<HTMLInputElement | null>(null);
-  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
-
-  // Throttling refs for high-frequency network sync (25ms / 40fps)
-  const syncTimerRef = useRef<number | null>(null);
-  const lastSyncTimeRef = useRef<number>(0);
-  const pendingSyncRef = useRef<{
-    screens: StudioProject[];
-    activeScreenId: string;
-    screen?: StudioProject;
-  } | null>(null);
-
-  const laserTimerRef = useRef<number | null>(null);
-  const lastLaserTimeRef = useRef<number>(0);
-  const paintRafRef = useRef<number | null>(null);
-  const lastPixelSampleTimeRef = useRef<number>(0);
-  const storageSaveTimerRef = useRef<number | null>(null);
-
-  const t = useCallback(
-    (ar: string, en: string) => (lang === 'en' ? en : ar),
-    [lang]
-  );
-
-  const showToast = useCallback((msg: string) => {
-    setToastMessage(msg);
-    window.setTimeout(() => {
-      setToastMessage((prev) => (prev === msg ? null : prev));
-    }, 2800);
-  }, []);
-
-  // High-performance 40fps throttled + coalesced sync to server for SSE delivery to Live Output screens
-  const flushSyncToServer = useCallback(
-    (payload: { screens: StudioProject[]; activeScreenId: string; screen?: StudioProject }) => {
-      lastSyncTimeRef.current = Date.now();
-      fetch('/api/screens/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (data?.connectedScreens) {
-            setServerConnectedCounts(data.connectedScreens);
-          }
-        })
-        .catch(() => {
-          // ignore network errors
-        });
-    },
-    []
-  );
-
-  const pushSyncToServer = useCallback(
-    (
-      nextScreens: StudioProject[],
-      nextActiveId: string,
-      changedScreen?: StudioProject,
-      immediate = false
-    ) => {
-      const payload = {
-        screens: nextScreens,
-        activeScreenId: nextActiveId,
-        screen: changedScreen,
-      };
-      pendingSyncRef.current = payload;
-
-      const elapsed = Date.now() - lastSyncTimeRef.current;
-      if (immediate || elapsed >= 25) {
-        if (syncTimerRef.current) {
-          window.clearTimeout(syncTimerRef.current);
-          syncTimerRef.current = null;
-        }
-        pendingSyncRef.current = null;
-        flushSyncToServer(payload);
-      } else if (!syncTimerRef.current) {
-        syncTimerRef.current = window.setTimeout(() => {
-          syncTimerRef.current = null;
-          if (pendingSyncRef.current) {
-            const latest = pendingSyncRef.current;
-            pendingSyncRef.current = null;
-            flushSyncToServer(latest);
-          }
-        }, 25 - elapsed);
-      }
-    },
-    [flushSyncToServer]
-  );
-
-  // Connect Director Console to Server SSE stream to track connected Live Output Windows in real time
-  useEffect(() => {
-    if (liveRoute.isLiveOutput) return undefined;
-
-    pushSyncToServer(screens, activeScreenId, project, true);
-
-    const es = new EventSource('/api/screens-stream?role=director');
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data?.connectedScreens) {
-          setServerConnectedCounts(data.connectedScreens);
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    return () => {
-      es.close();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveRoute.isLiveOutput]);
-
-  // BroadcastChannel + Tauri Native Event Bus setup
-  useEffect(() => {
-    const handleSyncMsg = (payload: SyncPayload) => {
-      if (!payload) return;
-      if (payload.type === 'OUTPUT_HEARTBEAT' && payload.screenId) {
-        setLiveOutputHeartbeats((prev) => ({
-          ...prev,
-          [payload.screenId!]: Date.now(),
-        }));
-      }
-    };
-
-    const unlistenTauri = listenTauriSyncEvent(handleSyncMsg);
-    const pingMsg: SyncPayload = {
-      type: 'PING',
-      timestamp: Date.now(),
-    };
-    emitTauriSyncEvent(pingMsg);
-
-    try {
-      const ch = new BroadcastChannel(CHANNEL_NAME);
-      broadcastChannelRef.current = ch;
-
-      ch.onmessage = (event: MessageEvent<SyncPayload>) => {
-        handleSyncMsg(event.data);
-      };
-
-      ch.postMessage(pingMsg);
-
-      return () => {
-        unlistenTauri();
-        ch.close();
-        broadcastChannelRef.current = null;
-      };
-    } catch {
-      return () => {
-        unlistenTauri();
-      };
-    }
-  }, []);
-
-  // Broadcast updates immediately to Live Output windows, prune stale caches, and debounce heavy localStorage JSON serialization (250ms)
-  useEffect(() => {
-    if (liveRoute.isLiveOutput) return;
-
-    if (storageSaveTimerRef.current) {
-      window.clearTimeout(storageSaveTimerRef.current);
-    }
-    storageSaveTimerRef.current = window.setTimeout(() => {
-      storageSaveTimerRef.current = null;
-      // Prune offscreen canvas and custom image caches for any removed screens/images
-      pruneStudioCaches(
-        screens.map((s) => s.id),
-        screens.map((s) => s.colorCalibration?.customImageDataUrl || '').filter(Boolean)
-      );
-
-      try {
-        localStorage.setItem(SCREENS_STORAGE_KEY, JSON.stringify(screens));
-        localStorage.setItem(ACTIVE_SCREEN_ID_KEY, activeScreenId);
-        localStorage.setItem(ACTIVE_STORAGE_KEY, JSON.stringify(project));
-      } catch {
-        // QuotaExceededError fallback: strip heavy base64 image data for localStorage while keeping full state in RAM & Server
-        try {
-          const lightScreens = screens.map((s) =>
-            s.colorCalibration?.customImageDataUrl
-              ? {
-                  ...s,
-                  colorCalibration: {
-                    ...s.colorCalibration,
-                    customImageDataUrl: null,
-                  },
-                }
-              : s
-          );
-          localStorage.setItem(SCREENS_STORAGE_KEY, JSON.stringify(lightScreens));
-          localStorage.setItem(ACTIVE_SCREEN_ID_KEY, activeScreenId);
-        } catch {
-          // ignore
-        }
-      }
-    }, 250);
-
-    // If Live Output is frozen by the director, keep edits local until unfrozen
-    if (isLiveFrozen) return;
-
-    const syncMsg: SyncPayload = {
-      type: 'PROJECT_UPDATE',
-      screenId: project.id,
-      project,
-      timestamp: Date.now(),
-    };
-    emitTauriSyncEvent(syncMsg);
-    broadcastChannelRef.current?.postMessage(syncMsg);
-    pushSyncToServer(screens, activeScreenId, project);
-  }, [screens, activeScreenId, project, liveRoute.isLiveOutput, isLiveFrozen, pushSyncToServer]);
-
-  // Tick every 1 second when Live Studio Clock is enabled
-  useEffect(() => {
-    if (!project.overlays?.showClock) return undefined;
-    const timer = window.setInterval(() => {
-      setClockTick((t) => t + 1);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [project.overlays?.showClock]);
-
-  // Keep a ref to screens so undo history recording never calls setState inside another setState updater
-  const screensRef = useRef<StudioProject[]>(screens);
-  screensRef.current = screens;
-
-  // Record a snapshot into the active screen's undo stack
-  const recordUndoSnapshot = useCallback((snapshot: StudioProject) => {
-    setHistoryByScreen((prev) => {
-      const cur = prev[snapshot.id] || { past: [], future: [] };
-      const last = cur.past[cur.past.length - 1];
-      if (last && last.updatedAt === snapshot.updatedAt) {
-        return prev;
-      }
-      return {
-        ...prev,
-        [snapshot.id]: {
-          past: [...cur.past.slice(-(MAX_HISTORY_STEPS - 1)), snapshot],
-          future: [],
-        },
-      };
-    });
-  }, []);
-
-  // Helper to update the currently selected screen (with automatic Undo history tracking)
-  const setProject = useCallback(
-    (
-      updaterOrVal: StudioProject | ((prev: StudioProject) => StudioProject),
-      options?: { skipHistory?: boolean }
-    ) => {
-      const currentSnapshot =
-        screensRef.current.find((s) => s.id === activeScreenId) ||
-        screensRef.current[0] ||
-        DEFAULT_STUDIO_PROJECT;
-
-      if (!options?.skipHistory && !isContinuousGestureRef.current) {
-        recordUndoSnapshot(currentSnapshot);
-      }
-
-      setScreens((prevScreens) => {
-        const current =
-          prevScreens.find((s) => s.id === activeScreenId) ||
-          prevScreens[0] ||
-          DEFAULT_STUDIO_PROJECT;
-        const nextScreen =
-          typeof updaterOrVal === 'function' ? updaterOrVal(current) : updaterOrVal;
-
-        const nextList = prevScreens.map((s) => (s.id === current.id ? nextScreen : s));
-        screensRef.current = nextList;
-        return nextList;
-      });
-    },
-    [activeScreenId, recordUndoSnapshot]
-  );
-
-  const handleUpdateProject = useCallback(
-    (updater: (prev: StudioProject) => StudioProject, options?: { skipHistory?: boolean }) => {
-      setProject(
-        (prev) => ({
-          ...updater(prev),
-          updatedAt: new Date().toISOString(),
-        }),
-        options
-      );
-    },
-    [setProject]
-  );
-
-  // Undo & Redo handlers for the active screen
-  const activeHistory = historyByScreen[project.id] || { past: [], future: [] };
-  const canUndo = activeHistory.past.length > 0;
-  const canRedo = activeHistory.future.length > 0;
-
-  const handleUndo = useCallback(() => {
-    const stack = historyByScreen[project.id];
-    if (!stack || stack.past.length === 0) return;
-    const previousState = stack.past[stack.past.length - 1];
-    const remainingPast = stack.past.slice(0, -1);
-
-    setHistoryByScreen((prev) => ({
-      ...prev,
-      [project.id]: {
-        past: remainingPast,
-        future: [project, ...stack.future].slice(0, MAX_HISTORY_STEPS),
-      },
-    }));
-
-    setScreens((prevScreens) =>
-      prevScreens.map((s) => (s.id === project.id ? previousState : s))
-    );
-    showToast(t('تم التراجع (Undo)', 'Undone'));
-  }, [historyByScreen, project, showToast, t]);
-
-  const handleRedo = useCallback(() => {
-    const stack = historyByScreen[project.id];
-    if (!stack || stack.future.length === 0) return;
-    const nextState = stack.future[0];
-    const remainingFuture = stack.future.slice(1);
-
-    setHistoryByScreen((prev) => ({
-      ...prev,
-      [project.id]: {
-        past: [...stack.past, project].slice(-MAX_HISTORY_STEPS),
-        future: remainingFuture,
-      },
-    }));
-
-    setScreens((prevScreens) =>
-      prevScreens.map((s) => (s.id === project.id ? nextState : s))
-    );
-    showToast(t('تمت الإعادة (Redo)', 'Redone'));
-  }, [historyByScreen, project, showToast, t]);
-
-  // Update Center Crosshair & Circle Config (supports both partial object and updater function)
-  const handleUpdateCenterConfig = useCallback(
-    (
-      patchOrUpdater:
-        | Partial<CenterOverlayConfig>
-        | ((prev: CenterOverlayConfig) => CenterOverlayConfig)
-    ) => {
-      handleUpdateProject((prev) => {
-        const currentCenter: CenterOverlayConfig = {
-          ...DEFAULT_CENTER_CONFIG,
-          ...(prev.centerConfig || {}),
-        };
-        const nextCenter: CenterOverlayConfig =
-          typeof patchOrUpdater === 'function'
-            ? patchOrUpdater(currentCenter)
-            : { ...currentCenter, ...patchOrUpdater };
-
-        return {
-          ...prev,
-          overlays: {
-            ...prev.overlays,
-            centerCrosshair: true,
-          },
-          centerConfig: nextCenter,
-        };
-      });
-    },
-    [handleUpdateProject]
-  );
-
-  // Update Color Calibration & Test Image Config (supports both partial object and updater function)
-  const handleUpdateColorConfig = useCallback(
-    (
-      patchOrUpdater:
-        | Partial<ColorCalibrationConfig>
-        | ((prev: ColorCalibrationConfig) => ColorCalibrationConfig)
-    ) => {
-      handleUpdateProject((prev) => {
-        const currentColor: ColorCalibrationConfig = {
-          ...DEFAULT_COLOR_CALIBRATION,
-          ...(prev.colorCalibration || {}),
-        };
-        const nextColor: ColorCalibrationConfig =
-          typeof patchOrUpdater === 'function'
-            ? patchOrUpdater(currentColor)
-            : { ...currentColor, ...patchOrUpdater };
-
-        return {
-          ...prev,
-          colorCalibration: nextColor,
-        };
-      });
-    },
-    [handleUpdateProject]
-  );
-
-  // Add a Horizontal or Vertical Ruler
-  const handleAddRuler = (orientation: RulerOrientation) => {
-    const existingCount = rulers.filter((r) => r.orientation === orientation).length;
-    const color = RULER_COLOR_PALETTE[rulers.length % RULER_COLOR_PALETTE.length];
-    const defaultPos =
-      orientation === 'horizontal'
-        ? Math.round(project.compHeight * (0.25 + (existingCount * 0.2) % 0.6))
-        : Math.round(project.compWidth * (0.25 + (existingCount * 0.2) % 0.6));
-
-    const newRuler: StudioRuler = {
-      id: `ruler-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name:
-        orientation === 'horizontal'
-          ? t(`مسطرة أفقية ${existingCount + 1}`, `Horiz Ruler ${existingCount + 1}`)
-          : t(`مسطرة عمودية ${existingCount + 1}`, `Vert Ruler ${existingCount + 1}`),
-      orientation,
-      positionPx: defaultPos,
-      color,
-      strokeWidth: 3,
-      opacity: 95,
-      dashed: false,
-      showTicks: true,
-      visible: true,
-      locked: false,
-    };
-
-    handleUpdateProject((prev) => ({
-      ...prev,
-      overlays: {
-        ...prev.overlays,
-        showRulers: true,
-      },
-      rulers: [...(prev.rulers || []), newRuler],
-    }));
-  };
-
-  // Spawn a ruler from clicking/dragging the top (Horizontal Y) or side (Vertical X) canvas edge bars
-  const handleSpawnRulerFromEdge = useCallback(
-    (orientation: RulerOrientation) => {
-      const existingCount = rulers.filter((r) => r.orientation === orientation).length;
-      const color = RULER_COLOR_PALETTE[rulers.length % RULER_COLOR_PALETTE.length];
-      const maxDim = orientation === 'horizontal' ? project.compHeight : project.compWidth;
-      const defaultPos = Math.round(maxDim * (0.25 + ((existingCount * 0.2) % 0.6)));
-
-      const newRuler: StudioRuler = {
-        id: `ruler-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        name:
-          orientation === 'horizontal'
-            ? t(`مسطرة أفقية ${existingCount + 1}`, `Horiz Ruler ${existingCount + 1}`)
-            : t(`مسطرة عمودية ${existingCount + 1}`, `Vert Ruler ${existingCount + 1}`),
-        orientation,
-        positionPx: defaultPos,
-        color,
-        strokeWidth: 3,
-        opacity: 95,
-        dashed: false,
-        showTicks: true,
-        visible: true,
-        locked: false,
-      };
-
-      handleUpdateProject((prev) => ({
-        ...prev,
-        overlays: {
-          ...prev.overlays,
-          showRulers: true,
-        },
-        rulers: [...(prev.rulers || []), newRuler],
-      }));
-      isContinuousGestureRef.current = true;
-      setDraggingRulerId(newRuler.id);
-    },
-    [rulers, project.compHeight, project.compWidth, t, handleUpdateProject]
-  );
-
-  // Update a Ruler (supports both partial object and updater function)
-  const handleUpdateRuler = useCallback(
-    (
-      rulerId: string,
-      patchOrUpdater: Partial<StudioRuler> | ((prev: StudioRuler) => StudioRuler)
-    ) => {
-      handleUpdateProject((prev) => ({
-        ...prev,
-        rulers: (prev.rulers || []).map((r) => {
-          if (r.id !== rulerId) return r;
-          return typeof patchOrUpdater === 'function'
-            ? patchOrUpdater(r)
-            : { ...r, ...patchOrUpdater };
-        }),
-      }));
-    },
-    [handleUpdateProject]
-  );
-
-  const handleDeleteRuler = useCallback(
-    (rulerId: string) => {
-      handleUpdateProject((prev) => ({
-        ...prev,
-        rulers: (prev.rulers || []).filter((r) => r.id !== rulerId),
-      }));
-    },
-    [handleUpdateProject]
-  );
-
-  const handleToggleLockAllRulers = useCallback(() => {
-    const allLocked = rulers.length > 0 && rulers.every((r) => r.locked);
-    handleUpdateProject((prev) => ({
-      ...prev,
-      rulers: (prev.rulers || []).map((r) => ({ ...r, locked: !allLocked })),
-    }));
-    showToast(
-      !allLocked
-        ? t('تم قفل تحريك جميع المساطر على الشاشة 🔒', 'Locked all rulers on canvas 🔒')
-        : t('تم فتح قفل المساطر', 'Unlocked all rulers')
-    );
-  }, [rulers, handleUpdateProject, showToast, t]);
-
-  // Add 4 Rulers (Left, Right, Top, Bottom) framing the bounding box of currently selected squares
-  const handleAddRulersAroundSelection = useCallback(() => {
-    const selectedCells = computed.cells.filter((c) => c.hasCustomColor);
-    if (selectedCells.length === 0) {
-      showToast(t('حدد مربعاً واحداً على الأقل أولاً', 'Select at least one square first'));
-      return;
-    }
-
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
-
-    for (const c of selectedCells) {
-      if (c.x < minX) minX = c.x;
-      if (c.x + c.width > maxX) maxX = c.x + c.width;
-      if (c.y < minY) minY = c.y;
-      if (c.y + c.height > maxY) maxY = c.y + c.height;
-    }
-
-    const baseId = Date.now();
-    const color = '#38BDF8';
-    const newRulers: StudioRuler[] = [
-      {
-        id: `ruler-${baseId}-left`,
-        name: t('يسار التحديد', 'Selection Left'),
-        orientation: 'vertical',
-        positionPx: Math.round(minX),
-        color,
-        strokeWidth: 3,
-        opacity: 95,
-        dashed: false,
-        showTicks: true,
-        visible: true,
-        locked: false,
-      },
-      {
-        id: `ruler-${baseId}-right`,
-        name: t('يمين التحديد', 'Selection Right'),
-        orientation: 'vertical',
-        positionPx: Math.round(maxX),
-        color,
-        strokeWidth: 3,
-        opacity: 95,
-        dashed: false,
-        showTicks: true,
-        visible: true,
-        locked: false,
-      },
-      {
-        id: `ruler-${baseId}-top`,
-        name: t('أعلى التحديد', 'Selection Top'),
-        orientation: 'horizontal',
-        positionPx: Math.round(minY),
-        color,
-        strokeWidth: 3,
-        opacity: 95,
-        dashed: false,
-        showTicks: true,
-        visible: true,
-        locked: false,
-      },
-      {
-        id: `ruler-${baseId}-bottom`,
-        name: t('أسفل التحديد', 'Selection Bottom'),
-        orientation: 'horizontal',
-        positionPx: Math.round(maxY),
-        color,
-        strokeWidth: 3,
-        opacity: 95,
-        dashed: false,
-        showTicks: true,
-        visible: true,
-        locked: false,
-      },
-    ];
-
-    handleUpdateProject((prev) => ({
-      ...prev,
-      overlays: {
-        ...prev.overlays,
-        showRulerDistances: true,
-      },
-      rulers: [...(prev.rulers || []), ...newRulers],
-    }));
-
-    showToast(
-      t(
-        'تمت إحاطة التحديد بـ 4 مساطر وتفعيل قياس المسافات تلقائياً',
-        'Added 4 rulers around selection & enabled distance measurement'
-      )
-    );
-  }, [computed.cells, handleUpdateProject, showToast, t]);
-
-  // Invert square selection on the active screen
-  const handleInvertSelection = useCallback(() => {
-    handleUpdateProject((prev) => {
-      const nextOverrides = { ...prev.overrides };
-      const activeHex = (prev.selectionColor || '#FDE047').toUpperCase();
-
-      for (const cell of computed.cells) {
-        const existing = nextOverrides[cell.key];
-        if (cell.hasCustomColor) {
-          if (existing) {
-            const copy = { ...existing };
-            delete copy.color;
-            if (!copy.label && !copy.directorNote) {
-              delete nextOverrides[cell.key];
-            } else {
-              nextOverrides[cell.key] = copy;
-            }
-          }
-        } else {
-          nextOverrides[cell.key] = {
-            ...existing,
-            cellKey: cell.key,
-            color: activeHex,
-            updatedAt: new Date().toISOString(),
-          };
-        }
-      }
-
-      return {
-        ...prev,
-        overrides: nextOverrides,
-        focusedNoteId: null,
-      };
-    });
-    showToast(t('تم عكس التحديد على الشبكة', 'Selection Inverted'));
-  }, [computed.cells, handleUpdateProject, showToast, t]);
-
-  // Trigger visual identification flash on a Live Output screen
-  const handleIdentifyScreen = useCallback(
-    (targetScreenId: string) => {
-      const msg: SyncPayload = {
-        type: 'IDENTIFY_SCREEN',
-        screenId: targetScreenId,
-        timestamp: Date.now(),
-      };
-      emitTauriSyncEvent(msg);
-      broadcastChannelRef.current?.postMessage(msg);
-      fetch('/api/screens/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(msg),
-      }).catch(() => {
-        // ignore
-      });
-
-      identifyFlashStartRef.current = performance.now();
-      editorIdentifyFlashIntensityRef.current = 1;
-      setFlashingScreenId(targetScreenId);
-      setEditorIdentifyFlash(true);
-      if (identifyTimeoutRef.current) window.clearTimeout(identifyTimeoutRef.current);
-      identifyTimeoutRef.current = window.setTimeout(() => {
-        editorIdentifyFlashIntensityRef.current = 0;
-        setEditorIdentifyFlash(false);
-        setFlashingScreenId(null);
-      }, 2000);
-
-      const targetScr = screens.find((s) => s.id === targetScreenId);
-      showToast(
-        t(
-          `تم إرسال ومضة تعريف إلى "${targetScr?.name || targetScreenId}"`,
-          `Sent Identification Flash to "${targetScr?.name || targetScreenId}"`
-        )
-      );
-    },
-    [screens, showToast, t]
-  );
-
-  // Toggle persistent (click ON / click OFF, no timer) visual identification on a screen
-  const handleTogglePinIdentifyScreen = useCallback(
-    (targetScreenId: string) => {
-      const targetScr = screensRef.current.find((s) => s.id === targetScreenId);
-      if (!targetScr) return;
-
-      const nextPinned = !targetScr.overlays?.pinnedIdentify;
-      const updatedScreen: StudioProject = {
-        ...targetScr,
-        updatedAt: new Date().toISOString(),
-        overlays: {
-          ...targetScr.overlays,
-          pinnedIdentify: nextPinned,
-        },
-      };
-
-      const nextScreens = screensRef.current.map((s) =>
-        s.id === targetScreenId ? updatedScreen : s
-      );
-      screensRef.current = nextScreens;
-      setScreens(nextScreens);
-
-      if (!isLiveFrozen) {
-        const syncMsg: SyncPayload = {
-          type: 'PROJECT_UPDATE',
-          screenId: targetScreenId,
-          project: updatedScreen,
-          timestamp: Date.now(),
-        };
-        emitTauriSyncEvent(syncMsg);
-        broadcastChannelRef.current?.postMessage(syncMsg);
-        pushSyncToServer(nextScreens, activeScreenId, updatedScreen, true);
-      }
-
-      showToast(
-        nextPinned
-          ? t(
-              `تم تفعيل وتثبيت بطاقة الومضة على "${targetScr.name}" (انقر مرة أخرى لإيقافها)`,
-              `Identification Hold ON for "${targetScr.name}" (Click again to turn off)`
-            )
-          : t(
-              `تم إيقاف تثبيت الومضة عن "${targetScr.name}"`,
-              `Identification Hold OFF for "${targetScr.name}"`
-            )
-      );
-    },
-    [activeScreenId, isLiveFrozen, pushSyncToServer, showToast, t]
-  );
-
-  // Trigger strobe blink on specific squares on the Live Output screen
-  const handleBlinkCellsOnLiveScreen = useCallback(
-    (cellKeys: string[]) => {
-      if (cellKeys.length === 0) return;
-
-      const startMsg: SyncPayload = {
-        type: 'BLINK_CELLS',
-        screenId: project.id,
-        blinkActive: true,
-        blinkingCellKeys: cellKeys,
-        timestamp: Date.now(),
-      };
-      emitTauriSyncEvent(startMsg);
-      broadcastChannelRef.current?.postMessage(startMsg);
-      fetch('/api/screens/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(startMsg),
-      }).catch(() => {
-        // ignore
-      });
-
-      setEditorBlinkingKeys(new Set(cellKeys));
-      if (blinkTimeoutRef.current) window.clearTimeout(blinkTimeoutRef.current);
-      blinkTimeoutRef.current = window.setTimeout(() => {
-        setEditorBlinkingKeys(new Set());
-        const stopMsg: SyncPayload = {
-          type: 'BLINK_CELLS',
-          screenId: project.id,
-          blinkActive: false,
-          blinkingCellKeys: [],
-          timestamp: Date.now(),
-        };
-        emitTauriSyncEvent(stopMsg);
-        broadcastChannelRef.current?.postMessage(stopMsg);
-        fetch('/api/screens/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(stopMsg),
-        }).catch(() => {
-          // ignore
-        });
-      }, 2600);
-
-      showToast(
-        t(
-          'تم إرسال وميض تنبيهي للصناديق على شاشة العرض المباشر',
-          'Flashing squares on Live Output Screen'
-        )
-      );
-    },
-    [project.id, showToast, t]
-  );
-
-  useEffect(() => {
-    if (editorBlinkingKeys.size === 0) {
-      setEditorBlinkPhaseOn(false);
-      return;
-    }
-    setEditorBlinkPhaseOn(true);
-    const interval = window.setInterval(() => {
-      setEditorBlinkPhaseOn((p) => !p);
-    }, 240);
-    return () => window.clearInterval(interval);
-  }, [editorBlinkingKeys]);
-
-  // Create a new screen with chosen name & preset dimensions
-  const handleCreateScreen = (openOutputImmediately = false) => {
-    const nextNum = screens.length + 1;
-    const newId = `screen-${Date.now()}`;
-    const preset =
-      RESOLUTION_PRESETS.find((p) => p.id === newScreenPresetId) || RESOLUTION_PRESETS[0];
-    const finalName =
-      newScreenName.trim() || t(`الشاشة ${nextNum}`, `Screen ${nextNum}`);
-
-    const newScreen: StudioProject = {
-      ...DEFAULT_STUDIO_PROJECT,
-      id: newId,
-      name: finalName,
-      compWidth: preset.width,
-      compHeight: preset.height,
-      squareSizePx: preset.recommendedSquarePx,
-      updatedAt: new Date().toISOString(),
-      selectionColor: '#FEF08A',
-      notes: [],
-      focusedNoteId: null,
-      centerConfig: { ...DEFAULT_CENTER_CONFIG },
-      rulers: [],
-      overrides: {},
-    };
-
-    const nextScreens = [...screens, newScreen];
-    setScreens(nextScreens);
-    setActiveScreenId(newId);
-    setContextMenu(null);
-    setAutoFit(true);
-    setIsNewScreenModalOpen(false);
-    setNewScreenName('');
-
-    try {
-      localStorage.setItem(SCREENS_STORAGE_KEY, JSON.stringify(nextScreens));
-      localStorage.setItem(ACTIVE_SCREEN_ID_KEY, newId);
-    } catch {
-      // ignore
-    }
-    pushSyncToServer(nextScreens, newId, newScreen, true);
-
-    if (openOutputImmediately) {
-      if (isTauriRuntime()) {
-        void openTauriLiveOutputWindow(newScreen);
-      } else {
-        const a = document.createElement('a');
-        a.href = `#live-output?screen=${encodeURIComponent(newId)}`;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
-    }
-
-    showToast(t(`تم إنشاء "${finalName}" وربطها بنجاح`, `Created "${finalName}"`));
-  };
-
-  // Duplicate current screen
-  const handleDuplicateScreen = () => {
-    const newId = `screen-${Date.now()}`;
-    const cloned: StudioProject = {
-      ...project,
-      id: newId,
-      name: `${project.name} (${t('نسخة', 'Copy')})`,
-      updatedAt: new Date().toISOString(),
-      notes: (project.notes || []).map((n, i) => ({
-        ...n,
-        id: `note-${Date.now()}-${i}`,
-      })),
-      rulers: (project.rulers || []).map((r, i) => ({
-        ...r,
-        id: `ruler-${Date.now()}-${i}`,
-      })),
-      centerConfig: { ...centerConfig },
-      overrides: { ...project.overrides },
-      focusedNoteId: null,
-    };
-    const nextScreens = [...screens, cloned];
-    setScreens(nextScreens);
-    setActiveScreenId(newId);
-    setContextMenu(null);
-    pushSyncToServer(nextScreens, newId, cloned, true);
-    showToast(t('تم نسخ الشاشة', 'Screen Duplicated'));
-  };
-
-  // Delete a screen (minimum 1 screen kept)
-  const handleDeleteScreen = (targetId: string) => {
-    if (screens.length <= 1) return;
-    const nextScreens = screens.filter((s) => s.id !== targetId);
-    const nextActive = activeScreenId === targetId ? nextScreens[0].id : activeScreenId;
-    setScreens(nextScreens);
-    setActiveScreenId(nextActive);
-    setContextMenu(null);
-    pushSyncToServer(nextScreens, nextActive, nextScreens[0], true);
-    showToast(t('تم حذف الشاشة', 'Screen Deleted'));
-  };
-
-  // Reorder screens up or down
-  const handleMoveScreen = useCallback(
-    (targetId: string, direction: 'up' | 'down') => {
-      setScreens((prev) => {
-        const idx = prev.findIndex((s) => s.id === targetId);
-        if (idx === -1) return prev;
-        const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-        if (swapIdx < 0 || swapIdx >= prev.length) return prev;
-        const next = [...prev];
-        const temp = next[idx];
-        next[idx] = next[swapIdx];
-        next[swapIdx] = temp;
-        screensRef.current = next;
-        pushSyncToServer(next, activeScreenId, project, true);
-        return next;
-      });
-    },
-    [activeScreenId, project, pushSyncToServer]
-  );
-
-  const isScreenLiveOpen = useCallback(
-    (scrId: string) => {
-      if ((serverConnectedCounts[scrId] || 0) > 0) return true;
-      const last = liveOutputHeartbeats[scrId];
-      return Boolean(last && Date.now() - last < 4500);
-    },
-    [serverConnectedCounts, liveOutputHeartbeats]
-  );
-
-  // Map of color (UPPERCASE HEX) -> StudioNoteItem that currently owns that color
-  const colorToNoteMap = useMemo(() => {
-    const map = new Map<string, StudioNoteItem>();
-    for (const note of project.notes || []) {
-      const noteColor =
-        note.targetColor ||
-        (note.targetCellKey ? computed.cellMap[note.targetCellKey]?.effectiveColor : undefined);
-      if (noteColor) {
-        map.set(noteColor.toUpperCase(), note);
-      }
-    }
-    return map;
-  }, [project.notes, computed.cellMap]);
-
-  // Helper to find the first unused selection color swatch
-  const getNextUnusedSelectionColor = useCallback(
-    (excludeHex?: string): string => {
-      for (const sw of SELECTION_COLOR_SWATCHES) {
-        const up = sw.hex.toUpperCase();
-        if (excludeHex && up === excludeHex.toUpperCase()) continue;
-        if (!colorToNoteMap.has(up)) {
-          return sw.hex;
-        }
-      }
-      return '#FDE047';
-    },
-    [colorToNoteMap]
-  );
-
-  // Focus input when context menu opens
-  useEffect(() => {
-    if (contextMenu) {
-      window.setTimeout(() => {
-        contextInputRef.current?.focus();
-        contextInputRef.current?.select();
-      }, 20);
-    }
-  }, [contextMenu?.cellKey]);
-
-  // Fit-to-viewport calculation
-  const recalculateFitZoom = useCallback(() => {
-    const container = viewportContainerRef.current;
-    if (!container) return;
-    const availW = Math.max(200, container.clientWidth - 48);
-    const availH = Math.max(180, container.clientHeight - 48);
-    const bestScale = Number(
-      Math.max(
-        ZOOM_MIN,
-        Math.min(2.5, Math.min(availW / project.compWidth, availH / project.compHeight))
-      ).toFixed(3)
-    );
-    setZoom((prev) => (prev === bestScale ? prev : bestScale));
-    setPan((prev) => (prev.x === 0 && prev.y === 0 ? prev : { x: 0, y: 0 }));
-  }, [project.compWidth, project.compHeight]);
-
-  useEffect(() => {
-    if (!autoFit) return;
-    recalculateFitZoom();
-    const handleResize = () => {
-      if (autoFit) recalculateFitZoom();
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [autoFit, recalculateFitZoom, activeScreenId, sidebarWidth]);
-
-  // 5-Point Corner & Center Quick-Jump Handler for Giant Screens
-  const handleJumpToCornerOrCenter = useCallback(
-    (target: 'tl' | 'tr' | 'center' | 'bl' | 'br') => {
-      const container = viewportContainerRef.current;
-      if (!container) return;
-      if (isPanoramicWallView) setIsPanoramicWallView(false);
-
-      if (target === 'center') {
-        setPan({ x: 0, y: 0 });
-        showToast(t('تم التوسيط إلى مركز الشاشة ◎', 'Centered on Screen ◎'));
-        return;
-      }
-
-      // Ensure zoom is high enough to inspect corner details cleanly
-      const availW = Math.max(240, container.clientWidth - 64);
-      const availH = Math.max(200, container.clientHeight - 80);
-      const fitScale = Math.min(availW / project.compWidth, availH / project.compHeight);
-      const targetZoom = Math.max(zoom, Math.min(ZOOM_MAX, Math.max(0.85, fitScale * 2.4)));
-
-      const scaledW = project.compWidth * targetZoom;
-      const scaledH = project.compHeight * targetZoom;
-
-      // Compute pan offset so the chosen corner sits comfortably inside the viewport
-      const maxPanX = Math.max(0, (scaledW - availW) / 2 + 24);
-      const maxPanY = Math.max(0, (scaledH - availH) / 2 + 24);
-
-      const nextPanX = target === 'tl' || target === 'bl' ? maxPanX : -maxPanX;
-      const nextPanY = target === 'tl' || target === 'tr' ? maxPanY : -maxPanY;
-
-      setAutoFit(false);
-      setZoom(Number(targetZoom.toFixed(3)));
-      setPan({ x: Math.round(nextPanX), y: Math.round(nextPanY) });
-
-      const cornerLabels: Record<string, string> = {
-        tl: t('الركن العلوي الأيسر ↖', 'Top-Left Corner ↖'),
-        tr: t('الركن العلوي الأيمن ↗', 'Top-Right Corner ↗'),
-        bl: t('الركن السفلي الأيسر ↙', 'Bottom-Left Corner ↙'),
-        br: t('الركن السفلي الأيمن ↘', 'Bottom-Right Corner ↘'),
-      };
-      showToast(cornerLabels[target] || '');
-    },
-    [isPanoramicWallView, project.compWidth, project.compHeight, zoom, showToast, t]
-  );
-
-  // Quick Square Search & Jump Handler (e.g. "A12", "05", "3-2")
-  const handleQuickJumpToSquare = useCallback(
-    (rawQuery?: string) => {
-      const q = (rawQuery ?? squareSearchQuery).trim().toUpperCase();
-      if (!q) return;
-
-      const matchedCell =
-        computed.cells.find((c) => c.displayId.toUpperCase() === q) ||
-        computed.cells.find((c) => c.coordId.toUpperCase() === q) ||
-        computed.cells.find((c) => String(c.seqIndex) === q.replace(/^0+/, '')) ||
-        computed.cells.find((c) => c.key === q);
-
-      if (!matchedCell) {
-        showToast(
-          t(
-            `لم يتم العثور على المربع "${q}" في الشاشة الحالية`,
-            `Square "${q}" not found on active screen`
-          )
-        );
-        return;
-      }
-
-      if (isPanoramicWallView) setIsPanoramicWallView(false);
-
-      const container = viewportContainerRef.current;
-      const availW = container ? Math.max(240, container.clientWidth - 64) : 800;
-      const availH = container ? Math.max(200, container.clientHeight - 80) : 600;
-      const idealCellScreenPx = 150;
-      const minCellDim = Math.max(16, Math.min(matchedCell.width, matchedCell.height));
-      const targetZoom = Math.max(
-        zoom,
-        Math.min(ZOOM_MAX, Math.max(0.75, idealCellScreenPx / minCellDim))
-      );
-
-      // Center of matched cell relative to canvas center
-      const cellCenterX = matchedCell.x + matchedCell.width / 2;
-      const cellCenterY = matchedCell.y + matchedCell.height / 2;
-      const offsetFromCanvasCenterX = project.compWidth / 2 - cellCenterX;
-      const offsetFromCanvasCenterY = project.compHeight / 2 - cellCenterY;
-
-      setAutoFit(false);
-      setZoom(Number(targetZoom.toFixed(3)));
-      setPan({
-        x: Math.round(offsetFromCanvasCenterX * targetZoom),
-        y: Math.round(offsetFromCanvasCenterY * targetZoom),
-      });
-      setHoveredKey(matchedCell.key);
-
-      // Briefly flash the found square on editor & live screen
-      handleBlinkCellsOnLiveScreen([matchedCell.key]);
-      showToast(
-        t(
-          `تم القفز إلى المربع ${matchedCell.displayId} (${matchedCell.coordId}) @ (${matchedCell.x},${matchedCell.y})`,
-          `Jumped to Square ${matchedCell.displayId} (${matchedCell.coordId})`
-        )
-      );
-      void availW;
-      void availH;
-    },
-    [
-      squareSearchQuery,
-      computed.cells,
-      isPanoramicWallView,
-      zoom,
-      project.compWidth,
-      project.compHeight,
-      handleBlinkCellsOnLiveScreen,
-      showToast,
-      t,
-    ]
-  );
-
-  // Interactive Minimap Radar Panning Helper (with optional auto-zoom when clicking from full-fit view)
-  const panFromMinimapClientCoords = useCallback(
-    (clientX: number, clientY: number, boostZoomIfFullView = false) => {
-      const miniEl = minimapCanvasRef.current || minimapRef.current;
-      if (!miniEl) return;
-      const rect = miniEl.getBoundingClientRect();
-      const relX = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-      const relY = Math.max(0, Math.min(1, (clientY - rect.top) / Math.max(1, rect.height)));
-
-      const targetCanvasX = relX * project.compWidth;
-      const targetCanvasY = relY * project.compHeight;
-
-      const offsetFromCenterX = project.compWidth / 2 - targetCanvasX;
-      const offsetFromCenterY = project.compHeight / 2 - targetCanvasY;
-
-      let effectiveZoom = zoom;
-      if (boostZoomIfFullView) {
-        const stageEl = viewportContainerRef.current;
-        const stageW = stageEl ? Math.max(240, stageEl.clientWidth - 48) : 960;
-        const stageH = stageEl ? Math.max(180, stageEl.clientHeight - 48) : 640;
-        const visW = stageW / Math.max(1, project.compWidth * zoom);
-        const visH = stageH / Math.max(1, project.compHeight * zoom);
-        if (autoFit || (visW >= 0.92 && visH >= 0.92)) {
-          effectiveZoom = Number(
-            Math.min(ZOOM_MAX, Math.max(zoom * 1.9, 1.15)).toFixed(3)
-          );
-          setZoom(effectiveZoom);
-        }
-      }
-
-      setAutoFit(false);
-      setPan({
-        x: Math.round(offsetFromCenterX * effectiveZoom),
-        y: Math.round(offsetFromCenterY * effectiveZoom),
-      });
-    },
-    [project.compWidth, project.compHeight, zoom, autoFit]
-  );
-
-  const handleMinimapWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const miniEl = minimapCanvasRef.current;
-      if (!miniEl) return;
-      const rect = miniEl.getBoundingClientRect();
-      const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
-      const relY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
-
-      const zoomFactor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
-      const nextZoom = Math.max(
-        ZOOM_MIN,
-        Math.min(ZOOM_MAX, Number((zoom * zoomFactor).toFixed(3)))
-      );
-      if (nextZoom === zoom) return;
-
-      const targetCanvasX = relX * project.compWidth;
-      const targetCanvasY = relY * project.compHeight;
-      const offsetFromCenterX = project.compWidth / 2 - targetCanvasX;
-      const offsetFromCenterY = project.compHeight / 2 - targetCanvasY;
-
-      setAutoFit(false);
-      setZoom(nextZoom);
-      setPan({
-        x: Math.round(offsetFromCenterX * nextZoom),
-        y: Math.round(offsetFromCenterY * nextZoom),
-      });
-    },
-    [zoom, project.compWidth, project.compHeight]
-  );
-
-  useEffect(() => {
-    if (!isDraggingMinimap) return;
-    const onMove = (e: MouseEvent) => {
-      panFromMinimapClientCoords(e.clientX, e.clientY, false);
-    };
-    const onUp = () => {
-      setIsDraggingMinimap(false);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [isDraggingMinimap, panFromMinimapClientCoords]);
-
   // Handle Grabbable Vertical Splitter Dragging to Resize Sidebar
   useEffect(() => {
-    if (!isResizingSidebar) return;
+    if (!isResizingSidebar) return undefined;
 
     const handleMouseMove = (e: MouseEvent) => {
       const asideEl = sidebarRef.current;
       if (!asideEl) return;
       const rect = asideEl.getBoundingClientRect();
-      // In RTL (Arabic), sidebar is on the right edge so width = rect.right - e.clientX
-      // In LTR (English), sidebar is on the left edge so width = e.clientX - rect.left
       const rawWidth = lang === 'en' ? e.clientX - rect.left : rect.right - e.clientX;
       const clamped = Math.max(
         SIDEBAR_MIN_WIDTH,
@@ -1804,206 +266,479 @@ export function App() {
     };
   }, [isResizingSidebar, lang]);
 
-  // Wheel Zoom toward cursor
-  const handleViewportWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const container = viewportContainerRef.current;
-      if (!container) return;
+  // Live Studio Clock 1-second tick for editor preview & custom image load trigger
+  const [clockTick, setClockTick] = useState<number>(0);
+  const [customImageLoadedSeq, setCustomImageLoadedSeq] = useState<number>(0);
 
-      const rect = container.getBoundingClientRect();
-      const cursorRelX = e.clientX - (rect.left + rect.width / 2);
-      const cursorRelY = e.clientY - (rect.top + rect.height / 2);
+  // Large-Screen Navigation, Multi-Screen Wall Stage & Pure Distraction-Free Mode State
+  const [isPanoramicWallView, setIsPanoramicWallView] = useState<boolean>(false);
+  const [isPureWallMode, setIsPureWallMode] = useState<boolean>(false);
+  const [isSearchPopoverOpen, setIsSearchPopoverOpen] = useState<boolean>(false);
+  const [squareSearchQuery, setSquareSearchQuery] = useState<string>('');
 
-      const zoomFactor = e.deltaY < 0 ? 1.14 : 1 / 1.14;
-      const nextZoom = Math.max(
-        ZOOM_MIN,
-        Math.min(ZOOM_MAX, Number((zoom * zoomFactor).toFixed(3)))
-      );
-      if (nextZoom === zoom) return;
+  // Modals & Picture-in-Picture Live Broadcast Stream
+  const [isColorReportModalOpen, setIsColorReportModalOpen] = useState<boolean>(false);
+  const [isPatchSheetModalOpen, setIsPatchSheetModalOpen] = useState<boolean>(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState<boolean>(false);
+  const [isArenaModalOpen, setIsArenaModalOpen] = useState<boolean>(false);
+  const [isPipActive, setIsPipActive] = useState<boolean>(false);
+  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
+  const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pipStreamRef = useRef<MediaStream | null>(null);
 
-      const scaleRatio = nextZoom / zoom;
-      setAutoFit(false);
-      setZoom(nextZoom);
-      setPan({
-        x: Math.round(cursorRelX - (cursorRelX - pan.x) * scaleRatio),
-        y: Math.round(cursorRelY - (cursorRelY - pan.y) * scaleRatio),
-      });
+  // Live Color Telemetry & Hovered Pixel Sample
+  const [colorMetrics, setColorMetrics] = useState<CanvasColorAnalysisResult>(() =>
+    analyzeCanvasColorMetrics(null)
+  );
+  const [hoveredPixel, setHoveredPixel] = useState<SampledHoveredPixel | null>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportContainerRef = useRef<HTMLDivElement | null>(null);
+  const paintRafRef = useRef<number | null>(null);
+
+  // Late-bound callback bridges to avoid circular hook initialization order
+  const pushSyncRef = useRef<
+    (
+      nextScreens: StudioProject[],
+      nextActiveId: string,
+      changedScreen?: StudioProject,
+      immediate?: boolean
+    ) => void
+  >(() => {});
+  const resetTransientUiRef = useRef<(options?: { resetAutoFit?: boolean }) => void>(() => {});
+  const paintCanvasRef = useRef<() => void>(() => {});
+  const scheduleCanvasPaintRef = useRef<() => void>(() => {});
+
+  const stablePushSyncToServer = useCallback(
+    (
+      nextScreens: StudioProject[],
+      nextActiveId: string,
+      changedScreen?: StudioProject,
+      immediate?: boolean
+    ) => {
+      pushSyncRef.current(nextScreens, nextActiveId, changedScreen, immediate);
     },
-    [zoom, pan]
+    []
   );
 
-  // Spacebar Pan, Undo/Redo (Ctrl+Z / Ctrl+Y), & Keyboard Zoom shortcuts
-  useEffect(() => {
-    const isInputFocused = () => {
-      const el = document.activeElement;
-      if (!el) return false;
-      const tag = el.tagName.toLowerCase();
-      return tag === 'input' || tag === 'textarea' || tag === 'select';
-    };
+  const stableResetTransientUi = useCallback((options?: { resetAutoFit?: boolean }) => {
+    resetTransientUiRef.current(options);
+  }, []);
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (pendingImport) {
-          setPendingImport(null);
-          return;
-        }
-        if (isContextColorPickerOpen) {
-          setIsContextColorPickerOpen(false);
-          return;
-        }
-        if (contextMenu) {
-          setContextMenu(null);
-          return;
-        }
-        if (isHelpModalOpen) {
-          setIsHelpModalOpen(false);
-          return;
-        }
-        if (isShortcutsModalOpen) {
-          setIsShortcutsModalOpen(false);
-          return;
-        }
-        if (isPatchSheetModalOpen) {
-          setIsPatchSheetModalOpen(false);
-          return;
-        }
-        if (isColorReportModalOpen) {
-          setIsColorReportModalOpen(false);
-          return;
-        }
-        if (isLibraryModalOpen) {
-          setIsLibraryModalOpen(false);
-          return;
-        }
-        if (isNewScreenModalOpen) {
-          setIsNewScreenModalOpen(false);
-          return;
-        }
-        if (isPureWallMode) {
-          setIsPureWallMode(false);
-          return;
-        }
-        if (isInAppLiveOutput) {
-          setIsInAppLiveOutput(false);
-          return;
-        }
-        if (isSearchPopoverOpen) {
-          setIsSearchPopoverOpen(false);
-          return;
-        }
-        setProject((prev) => (prev.focusedNoteId ? { ...prev, focusedNoteId: null } : prev));
-        return;
-      }
-      if (isInputFocused()) return;
+  // 1. Workspace Storage, Multi-Screen CRUD, Per-Screen Undo/Redo & Import/Export
+  const storage = useWorkspaceStorage({
+    isLiveOutput: liveRoute.isLiveOutput,
+    t,
+    showToast,
+    canvasRef,
+    pushSyncToServer: stablePushSyncToServer,
+    onResetTransientUi: stableResetTransientUi,
+  });
 
-      // Undo / Redo keyboard shortcuts
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleRedo();
-        return;
-      }
-
-      if (e.code === 'Space' && !e.repeat) {
-        e.preventDefault();
-        setIsSpacePressed(true);
-      } else if (e.key === '=' || e.key === '+') {
-        e.preventDefault();
-        setAutoFit(false);
-        setZoom((z) => Math.min(ZOOM_MAX, Number((z * 1.2).toFixed(3))));
-      } else if (e.key === '-' || e.key === '_') {
-        e.preventDefault();
-        setAutoFit(false);
-        setZoom((z) => Math.max(ZOOM_MIN, Number((z / 1.2).toFixed(3))));
-      } else if (e.key === '0') {
-        e.preventDefault();
-        setAutoFit(true);
-        recalculateFitZoom();
-      } else if (e.key === '?' || e.key === '؟') {
-        e.preventDefault();
-        setIsShortcutsModalOpen((v) => !v);
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const k = e.key.toLowerCase();
-        if (k === 'f') {
-          e.preventDefault();
-          handleIdentifyScreen(project.id);
-        } else if (k === 'p') {
-          e.preventDefault();
-          setIsPanoramicWallView(true);
-          setIsPureWallMode((v) => !v);
-        } else if (k === 'g') {
-          e.preventDefault();
-          setIsPanoramicWallView((v) => !v);
-        } else if (k === 'm') {
-          e.preventDefault();
-          setIsMinimapOpen((v) => !v);
-        } else if (k === 'l') {
-          e.preventDefault();
-          setToolMode((prev) => (prev === 'laser' ? 'select' : 'laser'));
-        } else if (k === 'd') {
-          e.preventDefault();
-          setHoveredKey(null);
-          setToolMode((prev) => {
-            const next = prev === 'draw' ? 'select' : 'draw';
-            if (next === 'draw') {
-              setProject(
-                (p) =>
-                  p.overlays.showDrawings === false
-                    ? { ...p, overlays: { ...p.overlays, showDrawings: true } }
-                    : p,
-                { skipHistory: true }
-              );
-            }
-            return next;
-          });
-        }
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        setIsSpacePressed(false);
-        setIsPanning(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [
-    recalculateFitZoom,
-    pendingImport,
-    isContextColorPickerOpen,
-    contextMenu,
-    isHelpModalOpen,
-    isShortcutsModalOpen,
-    isPatchSheetModalOpen,
-    isColorReportModalOpen,
-    isLibraryModalOpen,
-    isNewScreenModalOpen,
-    isPureWallMode,
-    isInAppLiveOutput,
-    isSearchPopoverOpen,
+  const {
+    screens,
+    setScreens,
+    screensRef,
+    activeScreenId,
+    setActiveScreenId,
+    project,
+    centerConfig,
+    colorConfig,
+    rulers,
+    activePhysicalMetrics,
+    isContinuousGestureRef,
+    canUndo,
+    canRedo,
+    recordUndoSnapshot,
     setProject,
+    handleUpdateProject,
     handleUndo,
     handleRedo,
-  ]);
+    handleUpdateCenterConfig,
+    handleUpdateColorConfig,
+    handleUpdateScreensPositions,
+    isNewScreenModalOpen,
+    setIsNewScreenModalOpen,
+    newScreenName,
+    setNewScreenName,
+    newScreenPresetId,
+    setNewScreenPresetId,
+    handleCreateScreen,
+    handleDuplicateScreen,
+    handleDeleteScreen,
+    handleMoveScreen,
+    workspaceName,
+    setWorkspaceName,
+    savedWorkspaces,
+    isLibraryModalOpen,
+    setIsLibraryModalOpen,
+    pendingImport,
+    setPendingImport,
+    fileInputRef,
+    handleSaveWorkspace,
+    handleOverwriteWorkspace,
+    handleLoadWorkspace,
+    handleDeleteWorkspace,
+    handleExportWorkspaceJson,
+    handleExportCurrentScreenJson,
+    handleExecuteImportDecision,
+    handleImportJsonText,
+    handleImportArenaScreens,
+    handleImportJSONFile,
+    handleTriggerImportDialog,
+    handleWorkspaceDropFile,
+  } = storage;
 
-  // Draw main editor canvas + minimap radar canvas directly (can be invoked by React render or 60fps RAF without React setState)
+  // Fine-grained memoization for computeGrid
+  const computed = useMemo(
+    () => computeGrid(project),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      project.id,
+      project.compWidth,
+      project.compHeight,
+      project.divisionMode,
+      project.squareSizePx,
+      project.useCustomRectPx,
+      project.cellWidthPx,
+      project.cellHeightPx,
+      project.columnsCount,
+      project.rowsCount,
+      project.gridRemainderAlign,
+      project.numberingSystem,
+      project.coloringMode,
+      project.overrides,
+      project.notes,
+      project.focusedNoteId,
+    ]
+  );
+
+  // Tick every 1 second when Live Studio Clock is enabled
+  useEffect(() => {
+    if (!project.overlays?.showClock) return undefined;
+    const timer = window.setInterval(() => {
+      setClockTick((tick) => tick + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [project.overlays?.showClock]);
+
+  // 2. Real-time Workspace Sync (SSE, BroadcastChannel, Tauri Events, Flash/Blink)
+  const sync = useWorkspaceSync({
+    screens,
+    screensRef,
+    activeScreenId,
+    project,
+    setScreens,
+    isLiveOutput: liveRoute.isLiveOutput,
+    isLiveFrozen,
+    t,
+    showToast,
+  });
+
+  const {
+    broadcastChannelRef,
+    editorBlinkingKeys,
+    clearEditorBlinkingKeys,
+    editorBlinkPhaseOn,
+    editorIdentifyFlash,
+    flashingScreenId,
+    editorIdentifyFlashIntensityRef,
+    identifyFlashStartRef,
+    pushSyncToServer,
+    sendImmediateProjectUpdate,
+    handleIdentifyScreen,
+    handleTogglePinIdentifyScreen,
+    handleBlinkCellsOnLiveScreen,
+    isScreenLiveOpen,
+  } = sync;
+
+  pushSyncRef.current = pushSyncToServer;
+
+  // 3. Live Laser Pointer & Freehand Vector Drawing Layer
+  const laserAndDrawing = useLaserAndDrawing({
+    projectId: project.id,
+    compWidth: project.compWidth,
+    compHeight: project.compHeight,
+    showDrawingsOverlay: project.overlays?.showDrawings,
+    computed,
+    broadcastChannelRef,
+    toolMode,
+    setToolMode,
+    hoveredKey,
+    setHoveredKey,
+    handleUpdateProject,
+    t,
+    showToast,
+  });
+
+  const {
+    laser,
+    setLaser,
+    laserColor,
+    laserMode,
+    laserTrailRef,
+    laserDrawnStrokeRef,
+    laserOriginRef,
+    laserDownRef,
+    emitLaserMove,
+    handleChangeLaserColor,
+    handleChangeLaserMode,
+    handleClearLaserStroke,
+    drawMode,
+    setDrawMode,
+    drawColor,
+    setDrawColor,
+    drawStrokeWidth,
+    setDrawStrokeWidth,
+    draftDrawingRef,
+    handleUndoLastDrawing,
+    handleClearAllDrawings,
+    handleToggleShowDrawings,
+    handleSelectToolMode,
+  } = laserAndDrawing;
+
+  // 4. Canvas Interaction (Coordinates, Marquee, Paint, Zoom/Pan, Minimap, Rulers, Context Menu, Shortcuts)
+  const interaction = useCanvasInteraction({
+    project,
+    computed,
+    rulers,
+    activeScreenId,
+    sidebarWidth,
+    activeSidebarTab,
+    canvasRef,
+    viewportContainerRef,
+    isContinuousGestureRef,
+    setProject,
+    handleUpdateProject,
+    recordUndoSnapshot,
+    handleUndo,
+    handleRedo,
+    toolMode,
+    setToolMode,
+    hoveredKey,
+    setHoveredKey,
+    isPanoramicWallView,
+    setIsPanoramicWallView,
+    isPureWallMode,
+    setIsPureWallMode,
+    isInAppLiveOutput,
+    setIsInAppLiveOutput,
+    isSearchPopoverOpen,
+    setIsSearchPopoverOpen,
+    squareSearchQuery,
+    hasPendingImport: Boolean(pendingImport),
+    onClearPendingImport: useCallback(() => setPendingImport(null), [setPendingImport]),
+    isArenaModalOpen,
+    onCloseArenaModal: useCallback(() => setIsArenaModalOpen(false), []),
+    isHelpModalOpen,
+    onCloseHelpModal: useCallback(() => setIsHelpModalOpen(false), []),
+    isShortcutsModalOpen,
+    setIsShortcutsModalOpen,
+    isPatchSheetModalOpen,
+    onClosePatchSheetModal: useCallback(() => setIsPatchSheetModalOpen(false), []),
+    isColorReportModalOpen,
+    onCloseColorReportModal: useCallback(() => setIsColorReportModalOpen(false), []),
+    isLibraryModalOpen,
+    onCloseLibraryModal: useCallback(() => setIsLibraryModalOpen(false), [setIsLibraryModalOpen]),
+    isNewScreenModalOpen,
+    onCloseNewScreenModal: useCallback(
+      () => setIsNewScreenModalOpen(false),
+      [setIsNewScreenModalOpen]
+    ),
+    laser,
+    setLaser,
+    laserColor,
+    laserMode,
+    emitLaserMove,
+    laserTrailRef,
+    laserDrawnStrokeRef,
+    laserOriginRef,
+    laserDownRef,
+    drawMode,
+    drawColor,
+    drawStrokeWidth,
+    draftDrawingRef,
+    handleIdentifyScreen,
+    handleBlinkCellsOnLiveScreen,
+    onPaintCanvas: useCallback(() => paintCanvasRef.current(), []),
+    onScheduleCanvasPaint: useCallback(() => scheduleCanvasPaintRef.current(), []),
+    onSampledPixel: setHoveredPixel,
+    t,
+    showToast,
+  });
+
+  const {
+    isSpacePressed,
+    contextMenu,
+    setContextMenu,
+    isContextColorPickerOpen,
+    setIsContextColorPickerOpen,
+    contextInputRef,
+    marqueeRect,
+    draggingRulerId,
+    snapRulersEnabled,
+    setSnapRulersEnabled,
+    zoom,
+    setZoom,
+    autoFit,
+    setAutoFit,
+    pan,
+    setPan,
+    isPanning,
+    isMinimapOpen,
+    setIsMinimapOpen,
+    setIsDraggingMinimap,
+    minimapRef,
+    minimapCanvasRef,
+    colorToNoteMap,
+    recalculateFitZoom,
+    handleJumpToCornerOrCenter,
+    handleQuickJumpToSquare,
+    panFromMinimapClientCoords,
+    handleMinimapWheel,
+    handleViewportWheel,
+    handleAddRuler,
+    handleSpawnRulerFromEdge,
+    handleUpdateRuler,
+    handleDeleteRuler,
+    handleToggleLockAllRulers,
+    handleAddRulersAroundSelection,
+    handleInvertSelection,
+    handleCanvasMouseDown,
+    handleCanvasMouseMove,
+    handleCanvasMouseUp,
+    handleCanvasMouseLeave,
+    handleCanvasContextMenu,
+    handleContextMenuColorChange,
+    handleSaveContextMenuNote,
+    handleDeleteNoteById,
+  } = interaction;
+
+  resetTransientUiRef.current = (options?: { resetAutoFit?: boolean }) => {
+    setContextMenu(null);
+    clearEditorBlinkingKeys();
+    if (options?.resetAutoFit) {
+      setAutoFit(true);
+    }
+  };
+
+  // Stop active Picture-in-Picture MediaStream tracks and release dedicated offscreen canvas memory
+  const stopPipBroadcast = useCallback(async (exitPiP = false) => {
+    if (pipStreamRef.current) {
+      pipStreamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          // Ignore track stop failures on already-ended streams
+        }
+      });
+      pipStreamRef.current = null;
+    }
+
+    const video = pipVideoRef.current;
+    if (video) {
+      video.onleavepictureinpicture = null;
+      try {
+        video.pause();
+      } catch {
+        // Ignore pause errors
+      }
+      video.srcObject = null;
+    }
+
+    const pipCanvas = pipCanvasRef.current;
+    if (pipCanvas) {
+      pipCanvas.width = 0;
+      pipCanvas.height = 0;
+    }
+
+    if (exitPiP && document.pictureInPictureElement) {
+      try {
+        await document.exitPictureInPicture();
+      } catch {
+        // Ignore exitPictureInPicture errors if already closed
+      }
+    }
+
+    setIsPipActive(false);
+  }, []);
+
+  // Ensure PiP stream and tracks are released on component unmount or when entering full-window live output
+  useEffect(() => {
+    return () => {
+      void stopPipBroadcast(true);
+    };
+  }, [stopPipBroadcast]);
+
+  useEffect(() => {
+    if ((liveRoute.isLiveOutput || isInAppLiveOutput) && isPipActive) {
+      void stopPipBroadcast(true);
+    }
+  }, [liveRoute.isLiveOutput, isInAppLiveOutput, isPipActive, stopPipBroadcast]);
+
+  // Paint dedicated hidden clean broadcast canvas for PiP (without editor hover, marquee, or lock badges)
+  const paintPipCanvas = useCallback(
+    (flashIntensityOverride?: number, forceRender = false) => {
+      if (!forceRender && (!isPipActive || isLiveFrozen)) return;
+      const pipCanvas = pipCanvasRef.current;
+      if (!pipCanvas) return;
+
+      if (pipCanvas.width !== project.compWidth) {
+        pipCanvas.width = project.compWidth;
+      }
+      if (pipCanvas.height !== project.compHeight) {
+        pipCanvas.height = project.compHeight;
+      }
+
+      const pCtx = pipCanvas.getContext('2d');
+      if (!pCtx) return;
+
+      const screenOrderIndex = Math.max(
+        0,
+        screens.findIndex((s) => s.id === project.id)
+      );
+      const effectiveFlashIntensity =
+        typeof flashIntensityOverride === 'number'
+          ? flashIntensityOverride
+          : editorIdentifyFlashIntensityRef.current;
+
+      renderStudioCanvas(pCtx, project, computed, {
+        hoveredCellKey: null,
+        blinkingCellKeys: editorBlinkingKeys,
+        blinkPhaseOn: editorBlinkPhaseOn,
+        identifyFlashActive:
+          editorIdentifyFlash && (!flashingScreenId || flashingScreenId === project.id),
+        identifyFlashIntensity: effectiveFlashIntensity,
+        laser,
+        isLiveOutput: true,
+        marqueeRect: null,
+        activeDraftDrawing: null,
+        screenOrderIndex,
+        lang,
+        onAsyncImageLoad: () => setCustomImageLoadedSeq((s) => s + 1),
+      });
+    },
+    [
+      isPipActive,
+      isLiveFrozen,
+      project,
+      computed,
+      screens,
+      editorBlinkingKeys,
+      editorBlinkPhaseOn,
+      editorIdentifyFlash,
+      flashingScreenId,
+      laser,
+      lang,
+    ]
+  );
+
+  // Draw main editor canvas + minimap radar canvas + isolated PiP stream canvas directly
   const paintEditorAndMinimapCanvases = useCallback(
     (flashIntensityOverride?: number) => {
+      paintPipCanvas(flashIntensityOverride);
+
       const canvas = canvasRef.current;
       if (canvas) {
         const ctx = canvas.getContext('2d');
@@ -2029,6 +764,7 @@ export function App() {
             marqueeRect,
             activeDraftDrawing: draftDrawingRef.current,
             screenOrderIndex,
+            lang,
             onAsyncImageLoad: () => setCustomImageLoadedSeq((s) => s + 1),
           });
         }
@@ -2153,6 +889,7 @@ export function App() {
       mCtx.restore();
     },
     [
+      paintPipCanvas,
       screens,
       project,
       computed,
@@ -2168,6 +905,7 @@ export function App() {
       isPanoramicWallView,
       zoom,
       pan,
+      lang,
     ]
   );
 
@@ -2216,6 +954,9 @@ export function App() {
     };
   }, [editorIdentifyFlash, project.overlays?.movingSyncBar, paintEditorAndMinimapCanvases]);
 
+  paintCanvasRef.current = paintEditorAndMinimapCanvases;
+  scheduleCanvasPaintRef.current = scheduleCanvasPaint;
+
   // Native Tauri NDI Frame Streamer Loop (pushes RGBA8 frames from active screen canvas at configured FPS when NDI is enabled)
   useEffect(() => {
     const ndiCfg = project.ndiConfig;
@@ -2232,7 +973,10 @@ export function App() {
       }
     }, intervalMs);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      disposeTauriNdiScratchCanvas();
+    };
   }, [
     project.id,
     project.ndiConfig?.enabled,
@@ -2260,1358 +1004,7 @@ export function App() {
     isColorReportModalOpen,
   ]);
 
-  // Send laser pointer updates to server + BroadcastChannel + Tauri Event Bus for the active screen
-  const emitLaserMove = useCallback(
-    (nextLaser: LaserPointerState, immediate = false) => {
-      const laserMsg: SyncPayload = {
-        type: 'LASER_MOVE',
-        screenId: project.id,
-        laser: nextLaser,
-        timestamp: Date.now(),
-      };
-      emitTauriSyncEvent(laserMsg);
-      broadcastChannelRef.current?.postMessage(laserMsg);
-
-      const sendToServer = (stateToSend: LaserPointerState) => {
-        lastLaserTimeRef.current = Date.now();
-        fetch('/api/screens/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'LASER_MOVE',
-            screenId: project.id,
-            laser: stateToSend,
-          }),
-        }).catch(() => {
-          // ignore
-        });
-      };
-
-      const elapsed = Date.now() - lastLaserTimeRef.current;
-      if (immediate || !nextLaser.active || elapsed >= 25) {
-        if (laserTimerRef.current) {
-          window.clearTimeout(laserTimerRef.current);
-          laserTimerRef.current = null;
-        }
-        sendToServer(nextLaser);
-      } else {
-        if (laserTimerRef.current) {
-          window.clearTimeout(laserTimerRef.current);
-        }
-        laserTimerRef.current = window.setTimeout(() => {
-          laserTimerRef.current = null;
-          sendToServer(nextLaser);
-        }, 25 - elapsed);
-      }
-    },
-    [project.id]
-  );
-
-  // Automatic optical trail decay so the laser tail smoothly shrinks into the laser spot when the cursor stops moving
-  useEffect(() => {
-    if (toolMode !== 'laser' || !laser?.active) return;
-    if (!laser.trail || laser.trail.length <= 1) return;
-
-    const timer = window.setInterval(() => {
-      const now = Date.now();
-      const currentTrail = laserTrailRef.current;
-      if (currentTrail.length <= 1) return;
-
-      const filtered = currentTrail.filter(
-        (pt, idx) => idx === currentTrail.length - 1 || now - (pt.t || 0) < 280
-      );
-      const nextTrail =
-        filtered.length < currentTrail.length ? filtered : currentTrail.slice(2);
-      laserTrailRef.current = nextTrail;
-
-      setLaser((prev) => {
-        if (!prev || !prev.active) return prev;
-        const updated: LaserPointerState = {
-          ...prev,
-          trail: nextTrail,
-        };
-        emitLaserMove(updated);
-        return updated;
-      });
-    }, 40);
-
-    return () => window.clearInterval(timer);
-  }, [toolMode, laser?.active, laser?.trail?.length, emitLaserMove]);
-
-  // Change laser color on the fly and sync immediately
-  const handleChangeLaserColor = useCallback(
-    (nextColor: string) => {
-      setLaserColor(nextColor);
-      setLaser((prev) => {
-        if (!prev || !prev.active) return prev;
-        const updated: LaserPointerState = {
-          ...prev,
-          color: nextColor,
-        };
-        emitLaserMove(updated, true);
-        return updated;
-      });
-    },
-    [emitLaserMove]
-  );
-
-  // Change laser mode ('free' | 'line' | 'crosshair') on the fly and sync immediately
-  const handleChangeLaserMode = useCallback(
-    (nextLaserMode: LaserModeType) => {
-      setLaserMode(nextLaserMode);
-      laserDrawnStrokeRef.current = [];
-      laserOriginRef.current = null;
-      setLaser((prev) => {
-        if (!prev || !prev.active) return prev;
-        const updated: LaserPointerState = {
-          ...prev,
-          laserMode: nextLaserMode,
-          originX: undefined,
-          originY: undefined,
-          drawnStroke: [],
-        };
-        emitLaserMove(updated, true);
-        return updated;
-      });
-    },
-    [emitLaserMove]
-  );
-
-  // Clear drawn laser line/stroke on screen
-  const handleClearLaserStroke = useCallback(() => {
-    laserDrawnStrokeRef.current = [];
-    laserOriginRef.current = null;
-    setLaser((prev) => {
-      if (!prev || !prev.active) return prev;
-      const updated: LaserPointerState = {
-        ...prev,
-        originX: undefined,
-        originY: undefined,
-        drawnStroke: [],
-      };
-      emitLaserMove(updated, true);
-      return updated;
-    });
-  }, [emitLaserMove]);
-
-  // Freehand Pen & Organic Shapes Layer controls (Undo last shape, Clear all shapes, Show/Hide layer)
-  const handleUndoLastDrawing = useCallback(() => {
-    handleUpdateProject((prev) => {
-      const list = prev.drawings || [];
-      if (list.length === 0) return prev;
-      return {
-        ...prev,
-        drawings: list.slice(0, -1),
-      };
-    });
-  }, [handleUpdateProject]);
-
-  const handleClearAllDrawings = useCallback(() => {
-    handleUpdateProject((prev) => ({
-      ...prev,
-      drawings: [],
-    }));
-    showToast(t('تم مسح جميع الأشكال والرسومات الحرة على الشاشة', 'Cleared all freehand shapes on screen'));
-  }, [handleUpdateProject, showToast, t]);
-
-  const handleToggleShowDrawings = useCallback(() => {
-    handleUpdateProject((prev) => ({
-      ...prev,
-      overlays: {
-        ...prev.overlays,
-        showDrawings: prev.overlays.showDrawings === false ? true : false,
-      },
-    }));
-  }, [handleUpdateProject]);
-
-  // Switch interaction tool mode (and immediately activate/deactivate Live Laser on screen)
-  const handleSelectToolMode = useCallback(
-    (nextMode: CanvasInteractionMode) => {
-      if (nextMode === 'laser') {
-        if (toolMode === 'laser' && laser?.active) {
-          // Clicking laser again toggles it off back to select mode
-          setToolMode('select');
-          laserTrailRef.current = [];
-          laserDrawnStrokeRef.current = [];
-          laserOriginRef.current = null;
-          laserDownRef.current = false;
-          setLaser(null);
-          emitLaserMove({ active: false, x: 0, y: 0, cellKey: null, displayId: null }, true);
-          return;
-        }
-        setToolMode('laser');
-        const startCell =
-          (hoveredKey && computed.cellMap[hoveredKey]) ||
-          computed.cells[Math.floor(computed.cells.length / 2)] ||
-          null;
-        const startX = startCell
-          ? Math.round(startCell.x + startCell.width / 2)
-          : Math.round(project.compWidth / 2);
-        const startY = startCell
-          ? Math.round(startCell.y + startCell.height / 2)
-          : Math.round(project.compHeight / 2);
-        const now = Date.now();
-        laserTrailRef.current = [{ x: startX, y: startY, t: now }];
-        laserDrawnStrokeRef.current = [];
-        laserOriginRef.current = null;
-        laserDownRef.current = false;
-        const initialLaser: LaserPointerState = {
-          active: true,
-          isDown: false,
-          x: startX,
-          y: startY,
-          color: laserColor,
-          laserMode,
-          cellKey: startCell?.key || null,
-          displayId: startCell?.displayId || null,
-          trail: [{ x: startX, y: startY, t: now }],
-          drawnStroke: [],
-        };
-        setLaser(initialLaser);
-        emitLaserMove(initialLaser, true);
-      } else {
-        setToolMode(nextMode);
-        if (nextMode === 'draw') {
-          setHoveredKey(null);
-          if (project.overlays.showDrawings === false) {
-            handleUpdateProject((prev) => ({
-              ...prev,
-              overlays: {
-                ...prev.overlays,
-                showDrawings: true,
-              },
-            }));
-          }
-        }
-        if (laser?.active) {
-          laserTrailRef.current = [];
-          laserDrawnStrokeRef.current = [];
-          laserOriginRef.current = null;
-          laserDownRef.current = false;
-          setLaser(null);
-          emitLaserMove({ active: false, x: 0, y: 0, cellKey: null, displayId: null }, true);
-        }
-      }
-    },
-    [
-      toolMode,
-      laser?.active,
-      laserColor,
-      laserMode,
-      hoveredKey,
-      computed.cellMap,
-      computed.cells,
-      project.compWidth,
-      project.compHeight,
-      project.overlays.showDrawings,
-      handleUpdateProject,
-      emitLaserMove,
-    ]
-  );
-
-  // Toggle selection color on a cell
-  const applySelectionToCell = useCallback(
-    (cellKey: string, mode: 'select' | 'deselect', colorToApply?: string) => {
-      setProject((prev) => {
-        const nextOverrides = { ...prev.overrides };
-        const existing = nextOverrides[cellKey];
-        const activeHex = (colorToApply || prev.selectionColor).toUpperCase();
-
-        if (mode === 'select') {
-          nextOverrides[cellKey] = {
-            ...existing,
-            cellKey,
-            color: activeHex,
-            updatedAt: new Date().toISOString(),
-          };
-        } else {
-          if (existing) {
-            const copy = { ...existing };
-            delete copy.color;
-            if (!copy.label && !copy.directorNote) {
-              delete nextOverrides[cellKey];
-            } else {
-              nextOverrides[cellKey] = copy;
-            }
-          }
-        }
-        return {
-          ...prev,
-          overrides: nextOverrides,
-          updatedAt: new Date().toISOString(),
-        };
-      });
-    },
-    [setProject]
-  );
-
-  // Canvas pointer coordinates (uses exact colEdges & rowEdges so Center Remainder Alignment hits 100% accurately)
-  const getCanvasCoords = (
-    e: React.MouseEvent<HTMLCanvasElement>
-  ): { x: number; y: number; cell: ComputedCell | null } => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0, cell: null };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = project.compWidth / rect.width;
-    const scaleY = project.compHeight / rect.height;
-    const x = Math.max(
-      0,
-      Math.min(project.compWidth - 1, Math.round((e.clientX - rect.left) * scaleX))
-    );
-    const y = Math.max(
-      0,
-      Math.min(project.compHeight - 1, Math.round((e.clientY - rect.top) * scaleY))
-    );
-    const col = findGridIndexFromEdges(computed.colEdges, x);
-    const row = findGridIndexFromEdges(computed.rowEdges, y);
-    const key = `${row}-${col}`;
-    return { x, y, cell: computed.cellMap[key] || null };
-  };
-
-  // Hit-test if pointer is near a visible & UNLOCKED ruler for direct dragging on canvas
-  const findHitRuler = (x: number, y: number): StudioRuler | null => {
-    if (project.overlays?.showRulers === false) return null;
-    const hitTolerance = Math.max(12, Math.round(14 / zoom));
-    for (let i = rulers.length - 1; i >= 0; i--) {
-      const r = rulers[i];
-      if (r.visible === false || r.locked) continue;
-      if (r.orientation === 'horizontal' && Math.abs(y - r.positionPx) <= hitTolerance) {
-        return r;
-      }
-      if (r.orientation === 'vertical' && Math.abs(x - r.positionPx) <= hitTolerance) {
-        return r;
-      }
-    }
-    return null;
-  };
-
-  // Smart snapping helper for ruler positions (snaps to screen center & exact grid cell edges)
-  const computeSnappedRulerPosition = (
-    rawPx: number,
-    orientation: RulerOrientation,
-    forceSnap: boolean
-  ): number => {
-    const maxDim = orientation === 'horizontal' ? project.compHeight : project.compWidth;
-    const clamped = Math.max(0, Math.min(maxDim, Math.round(rawPx)));
-    if (!snapRulersEnabled && !forceSnap) return clamped;
-
-    const snapTolerance = Math.max(10, Math.round(12 / zoom));
-    const centerPx = Math.round(maxDim / 2);
-
-    // 1. Snap to exact screen center (50%)
-    if (Math.abs(clamped - centerPx) <= snapTolerance) {
-      return centerPx;
-    }
-
-    // 2. Snap to nearest actual grid cell edge (supports both Start and Center remainder alignments)
-    const edges = orientation === 'horizontal' ? computed.rowEdges : computed.colEdges;
-    let bestEdge = clamped;
-    let bestDist = snapTolerance + 1;
-    for (let i = 0; i < edges.length; i++) {
-      const dist = Math.abs(clamped - edges[i]);
-      if (dist <= snapTolerance && dist < bestDist) {
-        bestDist = dist;
-        bestEdge = edges[i];
-      }
-    }
-    if (bestDist <= snapTolerance) {
-      return Math.round(bestEdge);
-    }
-
-    return clamped;
-  };
-
-  // Global window mousemove/mouseup for dragging rulers (including pulling out from Top/Side edge bars)
-  useEffect(() => {
-    if (!draggingRulerId) return;
-
-    const handleWindowMouseMove = (e: MouseEvent) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const targetRuler = rulers.find((r) => r.id === draggingRulerId);
-      if (!targetRuler || targetRuler.locked) return;
-
-      if (targetRuler.orientation === 'horizontal') {
-        if (e.clientY >= rect.top) {
-          const scaleY = project.compHeight / rect.height;
-          const rawY = Math.max(
-            0,
-            Math.min(project.compHeight, Math.round((e.clientY - rect.top) * scaleY))
-          );
-          const nextPos = computeSnappedRulerPosition(rawY, 'horizontal', e.shiftKey);
-          if (targetRuler.positionPx !== nextPos) {
-            handleUpdateRuler(draggingRulerId, { positionPx: nextPos });
-          }
-        }
-      } else {
-        if (e.clientX >= rect.left) {
-          const scaleX = project.compWidth / rect.width;
-          const rawX = Math.max(
-            0,
-            Math.min(project.compWidth, Math.round((e.clientX - rect.left) * scaleX))
-          );
-          const nextPos = computeSnappedRulerPosition(rawX, 'vertical', e.shiftKey);
-          if (targetRuler.positionPx !== nextPos) {
-            handleUpdateRuler(draggingRulerId, { positionPx: nextPos });
-          }
-        }
-      }
-    };
-
-    const handleWindowMouseUp = () => {
-      isContinuousGestureRef.current = false;
-      setDraggingRulerId(null);
-    };
-
-    window.addEventListener('mousemove', handleWindowMouseMove);
-    window.addEventListener('mouseup', handleWindowMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleWindowMouseMove);
-      window.removeEventListener('mouseup', handleWindowMouseUp);
-    };
-  }, [
-    draggingRulerId,
-    rulers,
-    project.compHeight,
-    project.compWidth,
-    snapRulersEnabled,
-    zoom,
-    computed.baseCellHeight,
-    computed.baseCellWidth,
-    handleUpdateRuler,
-  ]);
-
-  // Left-click: Drag ruler if near an unlocked ruler, or toggle square selection
-  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (e.button === 2) return;
-    setContextMenu(null);
-
-    if (toolMode === 'pan' || isSpacePressed || e.button === 1) {
-      setIsPanning(true);
-      setAutoFit(false);
-      panStartRef.current = {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        panX: pan.x,
-        panY: pan.y,
-      };
-      return;
-    }
-
-    const { x, y, cell } = getCanvasCoords(e);
-
-    if (toolMode === 'laser') {
-      const now = Date.now();
-      laserDownRef.current = true;
-      laserOriginRef.current = { x, y };
-      laserTrailRef.current = [{ x, y, t: now }];
-      laserDrawnStrokeRef.current = [{ x, y, t: now }];
-      const nextLaser: LaserPointerState = {
-        active: true,
-        isDown: true,
-        x,
-        y,
-        originX: x,
-        originY: y,
-        color: laserColor,
-        laserMode,
-        cellKey: cell?.key || null,
-        displayId: cell?.displayId || null,
-        trail: [{ x, y, t: now }],
-        drawnStroke: [{ x, y, t: now }],
-      };
-      setLaser(nextLaser);
-      emitLaserMove(nextLaser, true);
-      return;
-    }
-
-    // Freehand Pen & Shape Layer Mode ('polygon' | 'lasso_tiles' | 'freehand' | 'ellipse' | 'arrow')
-    // Handled before ruler/cell hit-testing so the drawing layer is 100% isolated and clean
-    if (toolMode === 'draw') {
-      if (hoveredKey !== null) setHoveredKey(null);
-      const isLasso = drawMode === 'lasso_tiles';
-      const itemMode: FreehandDrawingItem['mode'] =
-        drawMode === 'lasso_tiles' ? 'polygon' : drawMode;
-      draftDrawingRef.current = {
-        id: `draw-${Date.now()}`,
-        mode: itemMode,
-        points: [{ x, y }],
-        color: isLasso ? (project.selectionColor || '#FACC15') : drawColor,
-        strokeWidth: drawStrokeWidth,
-        closed: drawMode === 'polygon' || isLasso,
-        fillOpacity: drawMode === 'polygon' || drawMode === 'ellipse' ? 0.22 : 0,
-        isLassoTiles: isLasso,
-      };
-      paintEditorAndMinimapCanvases();
-      return;
-    }
-
-    // Check if clicking on an unlocked Ruler to drag it directly
-    const hitRuler = findHitRuler(x, y);
-    if (hitRuler) {
-      recordUndoSnapshot(project);
-      isContinuousGestureRef.current = true;
-      setDraggingRulerId(hitRuler.id);
-      return;
-    }
-
-    // Box / Marquee Selection Mode
-    if (toolMode === 'box') {
-      recordUndoSnapshot(project);
-      isContinuousGestureRef.current = true;
-      setMarqueeRect({ x1: x, y1: y, x2: x, y2: y });
-      return;
-    }
-
-    if (!cell) return;
-
-    // Record 1 undo step at the beginning of a square click/drag-paint gesture
-    recordUndoSnapshot(project);
-    isContinuousGestureRef.current = true;
-
-    if (project.focusedNoteId) {
-      setProject((prev) => ({ ...prev, focusedNoteId: null }), { skipHistory: true });
-    }
-
-    const activeSelColor = project.selectionColor.toUpperCase();
-
-    const existingOwnerNote = colorToNoteMap.get(activeSelColor);
-    if (
-      existingOwnerNote &&
-      existingOwnerNote.scope === 'single' &&
-      existingOwnerNote.targetCellKey !== cell.key &&
-      (!cell.hasCustomColor || cell.effectiveColor.toUpperCase() !== activeSelColor)
-    ) {
-      const freshColor = getNextUnusedSelectionColor(activeSelColor);
-      setProject((prev) => ({ ...prev, selectionColor: freshColor }), { skipHistory: true });
-      showToast(
-        t(
-          'اللون السابق محجوز لملاحظة صندوق فردي — تم التحويل للون تحديد جديد تلقائياً',
-          'Previous color is reserved for a single-square note; switched to a new color'
-        )
-      );
-      setPaintMode('select');
-      setIsPaintingSelection(true);
-      applySelectionToCell(cell.key, 'select', freshColor);
-      return;
-    }
-
-    const isAlreadySameSelectionColor =
-      cell.hasCustomColor && cell.effectiveColor.toUpperCase() === activeSelColor;
-
-    const nextMode: 'select' | 'deselect' = isAlreadySameSelectionColor ? 'deselect' : 'select';
-    setPaintMode(nextMode);
-    setIsPaintingSelection(true);
-    applySelectionToCell(cell.key, nextMode);
-  };
-
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isPanning) {
-      setPan({
-        x: panStartRef.current.panX + (e.clientX - panStartRef.current.clientX),
-        y: panStartRef.current.panY + (e.clientY - panStartRef.current.clientY),
-      });
-      return;
-    }
-
-    const { x, y, cell } = getCanvasCoords(e);
-
-    if (toolMode === 'laser') {
-      setHoveredKey(cell?.key || null);
-      const now = Date.now();
-      const prevTrail = laserTrailRef.current.filter((pt) => now - (pt.t || now) < 300);
-      const lastPt = prevTrail[prevTrail.length - 1];
-      const nextTrail =
-        !lastPt || Math.hypot(x - lastPt.x, y - lastPt.y) >= 3
-          ? [...prevTrail.slice(-22), { x, y, t: now }]
-          : prevTrail;
-      laserTrailRef.current = nextTrail;
-
-      if (laserDownRef.current) {
-        if (laserMode === 'free') {
-          const prevStroke = laserDrawnStrokeRef.current;
-          const lastStrokePt = prevStroke[prevStroke.length - 1];
-          if (!lastStrokePt || Math.hypot(x - lastStrokePt.x, y - lastStrokePt.y) >= 4) {
-            laserDrawnStrokeRef.current = [...prevStroke.slice(-180), { x, y, t: now }];
-          }
-        } else if (laserMode === 'line' && laserOriginRef.current) {
-          laserDrawnStrokeRef.current = [
-            { x: laserOriginRef.current.x, y: laserOriginRef.current.y, t: now },
-            { x, y, t: now },
-          ];
-        }
-      }
-
-      const nextLaser: LaserPointerState = {
-        active: true,
-        isDown: laserDownRef.current,
-        x,
-        y,
-        originX: laserOriginRef.current?.x,
-        originY: laserOriginRef.current?.y,
-        color: laserColor,
-        laserMode,
-        cellKey: cell?.key || null,
-        displayId: cell?.displayId || null,
-        trail: nextTrail,
-        drawnStroke: laserDrawnStrokeRef.current,
-      };
-      setLaser(nextLaser);
-      emitLaserMove(nextLaser);
-      return;
-    }
-
-    // If dragging a ruler, update its position live (with smart snapping)
-    if (draggingRulerId) {
-      const targetRuler = rulers.find((r) => r.id === draggingRulerId);
-      if (targetRuler && !targetRuler.locked) {
-        const rawCoord = targetRuler.orientation === 'horizontal' ? y : x;
-        const nextPos = computeSnappedRulerPosition(
-          rawCoord,
-          targetRuler.orientation,
-          e.shiftKey
-        );
-        handleUpdateRuler(draggingRulerId, { positionPx: nextPos });
-      }
-      return;
-    }
-
-    // If dragging a Box / Marquee selection rectangle
-    if (marqueeRect) {
-      setMarqueeRect((prev) => (prev ? { ...prev, x2: x, y2: y } : null));
-      return;
-    }
-
-    // In Freehand Draw mode, isolate cursor from grid square hover frames so drawing stays 100% clean
-    if (toolMode === 'draw') {
-      if (hoveredKey !== null) setHoveredKey(null);
-      if (draftDrawingRef.current) {
-        const currentDraft = draftDrawingRef.current;
-        const pts = currentDraft.points;
-        const lastPt = pts[pts.length - 1];
-        if (currentDraft.mode === 'ellipse' || currentDraft.mode === 'arrow') {
-          draftDrawingRef.current = {
-            ...currentDraft,
-            points: [pts[0], { x, y }],
-          };
-          scheduleCanvasPaint();
-        } else if (!lastPt || Math.hypot(x - lastPt.x, y - lastPt.y) >= 3) {
-          draftDrawingRef.current = {
-            ...currentDraft,
-            points: [...pts, { x, y }],
-          };
-          scheduleCanvasPaint();
-        }
-      }
-      return;
-    }
-
-    const nextHoverKey = cell?.key || null;
-    if (nextHoverKey !== hoveredKey) {
-      setHoveredKey(nextHoverKey);
-    }
-
-    // Sample pixel color under cursor ONLY when Color Lab tab is visible (throttled to 25fps via 1x1 offscreen sampler)
-    if (activeSidebarTab === 'colors' || activeSidebarTab === 'all') {
-      const nowMs = performance.now();
-      if (nowMs - lastPixelSampleTimeRef.current >= 40) {
-        lastPixelSampleTimeRef.current = nowMs;
-        const sampled = sampleCanvasPixelFast(canvasRef.current, x, y);
-        if (sampled) {
-          setHoveredPixel(sampled);
-        }
-      }
-    }
-
-    if (isPaintingSelection && cell) {
-      const activeSelColor = project.selectionColor.toUpperCase();
-      const existingOwnerNote = colorToNoteMap.get(activeSelColor);
-      if (existingOwnerNote && existingOwnerNote.scope === 'single') {
-        return;
-      }
-      applySelectionToCell(cell.key, paintMode);
-    }
-  };
-
-  const handleCanvasMouseUp = () => {
-    if (toolMode === 'laser' && laserDownRef.current) {
-      laserDownRef.current = false;
-      laserOriginRef.current = null;
-      if (laser) {
-        const releasedLaser: LaserPointerState = {
-          ...laser,
-          isDown: false,
-          originX: undefined,
-          originY: undefined,
-          color: laserColor,
-          laserMode,
-          drawnStroke: laserDrawnStrokeRef.current,
-        };
-        setLaser(releasedLaser);
-        emitLaserMove(releasedLaser, true);
-      }
-    }
-
-    if (marqueeRect) {
-      const rx1 = Math.min(marqueeRect.x1, marqueeRect.x2);
-      const ry1 = Math.min(marqueeRect.y1, marqueeRect.y2);
-      const rx2 = Math.max(marqueeRect.x1, marqueeRect.x2);
-      const ry2 = Math.max(marqueeRect.y1, marqueeRect.y2);
-
-      const intersectingCells = computed.cells.filter(
-        (c) => c.x < rx2 && c.x + c.width > rx1 && c.y < ry2 && c.y + c.height > ry1
-      );
-
-      if (intersectingCells.length > 0) {
-        const activeHex = (project.selectionColor || '#FDE047').toUpperCase();
-        const allAlreadySelectedWithSameColor = intersectingCells.every(
-          (c) => c.hasCustomColor && c.effectiveColor.toUpperCase() === activeHex
-        );
-
-        setProject(
-          (prev) => {
-            const nextOverrides = { ...prev.overrides };
-            for (const c of intersectingCells) {
-              const existing = nextOverrides[c.key];
-              if (allAlreadySelectedWithSameColor) {
-                if (existing) {
-                  const copy = { ...existing };
-                  delete copy.color;
-                  if (!copy.label && !copy.directorNote) {
-                    delete nextOverrides[c.key];
-                  } else {
-                    nextOverrides[c.key] = copy;
-                  }
-                }
-              } else {
-                nextOverrides[c.key] = {
-                  ...existing,
-                  cellKey: c.key,
-                  color: activeHex,
-                  updatedAt: new Date().toISOString(),
-                };
-              }
-            }
-            return {
-              ...prev,
-              overrides: nextOverrides,
-              focusedNoteId: null,
-              updatedAt: new Date().toISOString(),
-            };
-          },
-          { skipHistory: true }
-        );
-      }
-      setMarqueeRect(null);
-    }
-
-    if (draftDrawingRef.current) {
-      const completedDraft = draftDrawingRef.current;
-      draftDrawingRef.current = null;
-      if (completedDraft.points.length >= 2) {
-        if (completedDraft.isLassoTiles && completedDraft.points.length >= 3) {
-          // Automatically select or toggle all grid tiles whose center falls inside the drawn freeform shape!
-          const matchedCells = computed.cells.filter((c) =>
-            isPointInPolygon(c.x + c.width / 2, c.y + c.height / 2, completedDraft.points)
-          );
-          if (matchedCells.length > 0) {
-            recordUndoSnapshot(project);
-            const activeHex = (project.selectionColor || '#FDE047').toUpperCase();
-            const allAlreadySameColor = matchedCells.every(
-              (c) => c.hasCustomColor && c.effectiveColor.toUpperCase() === activeHex
-            );
-            setProject(
-              (prev) => {
-                const nextOverrides = { ...prev.overrides };
-                for (const c of matchedCells) {
-                  const existing = nextOverrides[c.key];
-                  if (allAlreadySameColor) {
-                    if (existing) {
-                      const copy = { ...existing };
-                      delete copy.color;
-                      if (!copy.label && !copy.directorNote) {
-                        delete nextOverrides[c.key];
-                      } else {
-                        nextOverrides[c.key] = copy;
-                      }
-                    }
-                  } else {
-                    nextOverrides[c.key] = {
-                      ...existing,
-                      cellKey: c.key,
-                      color: activeHex,
-                      updatedAt: new Date().toISOString(),
-                    };
-                  }
-                }
-                return {
-                  ...prev,
-                  overrides: nextOverrides,
-                  focusedNoteId: null,
-                  updatedAt: new Date().toISOString(),
-                };
-              },
-              { skipHistory: true }
-            );
-            showToast(
-              t(
-                `تم تحديد ${matchedCells.length} بلاطة داخل الشكل الحر`,
-                `Selected ${matchedCells.length} tiles inside freeform lasso`
-              )
-            );
-          } else {
-            paintEditorAndMinimapCanvases();
-          }
-        } else {
-          // Commit persistent freeform vector shape to project.drawings
-          const cleanItem: FreehandDrawingItem = {
-            id: completedDraft.id,
-            mode: completedDraft.mode,
-            points: completedDraft.points,
-            color: completedDraft.color,
-            strokeWidth: completedDraft.strokeWidth,
-            closed: completedDraft.closed,
-            fillOpacity: completedDraft.fillOpacity,
-          };
-          handleUpdateProject((prev) => ({
-            ...prev,
-            overlays: {
-              ...prev.overlays,
-              showDrawings: true,
-            },
-            drawings: [...(prev.drawings || []), cleanItem],
-          }));
-        }
-      } else {
-        paintEditorAndMinimapCanvases();
-      }
-    }
-
-    isContinuousGestureRef.current = false;
-    setIsPanning(false);
-    setIsPaintingSelection(false);
-    setDraggingRulerId(null);
-  };
-
-  const handleCanvasMouseLeave = () => {
-    isContinuousGestureRef.current = false;
-    setIsPanning(false);
-    setIsPaintingSelection(false);
-    setDraggingRulerId(null);
-    setMarqueeRect(null);
-    if (draftDrawingRef.current) {
-      draftDrawingRef.current = null;
-      paintEditorAndMinimapCanvases();
-    }
-    setHoveredKey(null);
-    setHoveredPixel(null);
-    if (toolMode === 'laser' && laser?.active) {
-      // Keep the laser parked on its target square when moving cursor off canvas
-      laserDownRef.current = false;
-      laserOriginRef.current = null;
-      const parkedLaser: LaserPointerState = {
-        ...laser,
-        isDown: false,
-        originX: undefined,
-        originY: undefined,
-        color: laserColor,
-        laserMode,
-        trail: [{ x: laser.x, y: laser.y, t: Date.now() }],
-        drawnStroke: laserDrawnStrokeRef.current,
-      };
-      setLaser(parkedLaser);
-      emitLaserMove(parkedLaser, true);
-    }
-  };
-
-  // Right-Click Context Menu on Canvas Square
-  const handleCanvasContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const { cell } = getCanvasCoords(e);
-    if (!cell) return;
-
-    let targetColor = cell.hasCustomColor
-      ? cell.effectiveColor.toUpperCase()
-      : project.selectionColor.toUpperCase();
-
-    if (!cell.hasCustomColor) {
-      const ownerOfCurrentSel = colorToNoteMap.get(targetColor);
-      if (ownerOfCurrentSel) {
-        targetColor = getNextUnusedSelectionColor(targetColor).toUpperCase();
-        setProject((prev) => ({ ...prev, selectionColor: targetColor }));
-      }
-      applySelectionToCell(cell.key, 'select', targetColor);
-    }
-
-    const notesList = project.notes || [];
-    const singleNoteOnCell = notesList.find(
-      (n) => n.scope === 'single' && n.targetCellKey === cell.key
-    );
-    const groupNoteOnColor = notesList.find(
-      (n) =>
-        n.scope === 'color-group' &&
-        n.targetColor?.toUpperCase() === targetColor.toUpperCase()
-    );
-
-    const activeNote = singleNoteOnCell || groupNoteOnColor || null;
-
-    const menuW = 300;
-    const menuH = 290;
-    const safeX = Math.max(16, Math.min(window.innerWidth - menuW - 16, e.clientX));
-    const safeY = Math.max(16, Math.min(window.innerHeight - menuH - 16, e.clientY));
-
-    setContextMenu({
-      clientX: safeX,
-      clientY: safeY,
-      cellKey: cell.key,
-      displayId: cell.displayId,
-      effectiveColor: targetColor,
-      existingNoteId: activeNote?.id || null,
-      draftText: activeNote?.text || '',
-      scope: activeNote?.scope || 'color-group',
-      errorMsg: null,
-    });
-  };
-
-  const handleContextMenuColorChange = (newHex: string) => {
-    if (!contextMenu) return;
-    const upper = newHex.toUpperCase();
-    applySelectionToCell(contextMenu.cellKey, 'select', upper);
-    setProject((prev) => ({ ...prev, selectionColor: upper }));
-
-    const existingOnNewColor = colorToNoteMap.get(upper);
-    setContextMenu((prev) =>
-      prev
-        ? {
-            ...prev,
-            effectiveColor: upper,
-            existingNoteId: existingOnNewColor?.id || null,
-            draftText: existingOnNewColor?.text || prev.draftText,
-            errorMsg: null,
-          }
-        : null
-    );
-  };
-
-  const handleSaveContextMenuNote = (customText?: string) => {
-    if (!contextMenu) return;
-    const textToSave = (customText ?? contextMenu.draftText).trim();
-    if (!textToSave) return;
-
-    const colorUpper = contextMenu.effectiveColor.toUpperCase();
-    const ownerNote = colorToNoteMap.get(colorUpper);
-
-    if (ownerNote && ownerNote.id !== contextMenu.existingNoteId) {
-      setContextMenu((prev) =>
-        prev
-          ? {
-              ...prev,
-              errorMsg: t(
-                `هذا اللون مستخدم بالفعل للملاحظة "${ownerNote.text}". اختر لوناً آخر أدناه.`,
-                `This color is already used by note "${ownerNote.text}". Pick another color below.`
-              ),
-            }
-          : null
-      );
-      return;
-    }
-
-    if (contextMenu.scope === 'single') {
-      const otherCellsWithSameColor = computed.cells.filter(
-        (c) =>
-          c.key !== contextMenu.cellKey &&
-          c.hasCustomColor &&
-          c.effectiveColor.toUpperCase() === colorUpper
-      );
-      if (otherCellsWithSameColor.length > 0) {
-        setContextMenu((prev) =>
-          prev
-            ? {
-                ...prev,
-                errorMsg: t(
-                  'هذا اللون محدد في صناديق أخرى أيضاً — اختر "لكل الصناديق بنفس اللون" أو اختر لوناً جديداً لهذا الصندوق.',
-                  'This color is also used on other squares. Choose "All Same-Color Squares" or pick a unique color below.'
-                ),
-              }
-            : null
-        );
-        return;
-      }
-    }
-
-    const nextUnusedColor = getNextUnusedSelectionColor(colorUpper);
-
-    setProject((prev) => {
-      const existingNotes = prev.notes || [];
-      const filtered = existingNotes.filter((n) => {
-        if (contextMenu.existingNoteId && n.id === contextMenu.existingNoteId) return false;
-        if (n.targetColor?.toUpperCase() === colorUpper) return false;
-        if (contextMenu.scope === 'single' && n.targetCellKey === contextMenu.cellKey) return false;
-        return true;
-      });
-
-      const newNote: StudioNoteItem = {
-        id: contextMenu.existingNoteId || `note-${Date.now()}`,
-        text: textToSave,
-        scope: contextMenu.scope,
-        targetCellKey: contextMenu.scope === 'single' ? contextMenu.cellKey : undefined,
-        targetColor: colorUpper,
-        createdAt: new Date().toISOString(),
-      };
-
-      return {
-        ...prev,
-        selectionColor: nextUnusedColor,
-        notes: [...filtered, newNote],
-        updatedAt: new Date().toISOString(),
-      };
-    });
-
-    setContextMenu(null);
-  };
-
-  const handleDeleteNoteById = (noteId: string) => {
-    setProject((prev) => ({
-      ...prev,
-      notes: (prev.notes || []).filter((n) => n.id !== noteId),
-      focusedNoteId: prev.focusedNoteId === noteId ? null : prev.focusedNoteId,
-      updatedAt: new Date().toISOString(),
-    }));
-    setContextMenu(null);
-  };
-
-  // Exports
-  const handleExportPNG = () => {
-    const offscreen = document.createElement('canvas');
-    offscreen.width = project.compWidth;
-    offscreen.height = project.compHeight;
-    const ctx = offscreen.getContext('2d');
-    if (!ctx) return;
-
-    renderStudioCanvas(ctx, project, computed, { isLiveOutput: true });
-
-    offscreen.toBlob((blob) => {
-      if (!blob) return;
-      const fileName = `${project.name}_${project.compWidth}x${project.compHeight}.png`;
-      void saveStudioBinaryFile(blob, fileName, {
-        filterName: 'PNG Calibration Image (.png)',
-        extensions: ['png'],
-      }).then((res) => {
-        if (res.saved) {
-          showToast(t('تم حفظ صورة PNG', 'PNG Saved'));
-        }
-      });
-    }, 'image/png');
-  };
-
-  const persistSavedWorkspaces = (nextList: SavedWorkspaceProject[]) => {
-    setSavedWorkspaces(nextList);
-    try {
-      localStorage.setItem(WORKSPACES_LIBRARY_KEY, JSON.stringify(nextList));
-    } catch {
-      // QuotaExceededError fallback: store lightweight metadata in localStorage while server stores full images
-      try {
-        const lightList = nextList.map((ws) => ({
-          ...ws,
-          screens: ws.screens.map((s) =>
-            s.colorCalibration?.customImageDataUrl
-              ? {
-                  ...s,
-                  colorCalibration: {
-                    ...s.colorCalibration,
-                    customImageDataUrl: null,
-                  },
-                }
-              : s
-          ),
-        }));
-        localStorage.setItem(WORKSPACES_LIBRARY_KEY, JSON.stringify(lightList));
-      } catch {
-        // ignore
-      }
-    }
-    fetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projects: nextList }),
-    }).catch(() => {
-      // ignore
-    });
-  };
-
-  const handleSaveWorkspace = (customName?: string) => {
-    const cleanName = customName?.trim() || workspaceName.trim() || 'مشروع الاستوديو الرئيسي';
-    setWorkspaceName(cleanName);
-    const snapshot: SavedWorkspaceProject = {
-      id: `ws-${Date.now()}`,
-      name: cleanName,
-      updatedAt: new Date().toISOString(),
-      activeScreenId,
-      screens: screens.map((s) => ({
-        ...s,
-        focusedNoteId: null,
-      })),
-    };
-    const nextList = [snapshot, ...savedWorkspaces];
-    persistSavedWorkspaces(nextList);
-    showToast(
-      t(
-        `تم حفظ المشروع "${cleanName}" (${screens.length} شاشات)`,
-        `Saved Project "${cleanName}" (${screens.length} screens)`
-      )
-    );
-  };
-
-  const handleOverwriteWorkspace = (workspaceId: string) => {
-    const target = savedWorkspaces.find((w) => w.id === workspaceId);
-    const updatedName = workspaceName.trim() || target?.name || 'مشروع الاستوديو';
-    const nextList = savedWorkspaces.map((w) =>
-      w.id === workspaceId
-        ? {
-            ...w,
-            name: updatedName,
-            updatedAt: new Date().toISOString(),
-            activeScreenId,
-            screens: screens.map((s) => ({
-              ...s,
-              focusedNoteId: null,
-            })),
-          }
-        : w
-    );
-    persistSavedWorkspaces(nextList);
-    showToast(t(`تم تحديث المشروع "${updatedName}"`, `Updated Project "${updatedName}"`));
-  };
-
-  const handleLoadWorkspace = (ws: SavedWorkspaceProject) => {
-    if (!Array.isArray(ws.screens) || ws.screens.length === 0) return;
-    const sanitizedScreens = ws.screens.map((s, idx) => normalizeScreen(s, idx + 1));
-    const nextActiveId = sanitizedScreens.some((s) => s.id === ws.activeScreenId)
-      ? ws.activeScreenId
-      : sanitizedScreens[0].id;
-    setHistoryByScreen({});
-    setContextMenu(null);
-    setEditorBlinkingKeys(new Set());
-    setWorkspaceName(ws.name || 'مشروع الاستوديو');
-    setScreens(sanitizedScreens);
-    setActiveScreenId(nextActiveId);
-    const activeProj = sanitizedScreens.find((s) => s.id === nextActiveId) || sanitizedScreens[0];
-    pushSyncToServer(sanitizedScreens, nextActiveId, activeProj, true);
-    showToast(
-      t(
-        `تم فتح المشروع "${ws.name}" (${sanitizedScreens.length} شاشات)`,
-        `Opened Project "${ws.name}" (${sanitizedScreens.length} screens)`
-      )
-    );
-  };
-
-  const handleDeleteWorkspace = (id: string) => {
-    const nextList = savedWorkspaces.filter((w) => w.id !== id);
-    persistSavedWorkspaces(nextList);
-    showToast(t('تم حذف المشروع من المحفوظات', 'Project Deleted'));
-  };
-
-  const handleExportWorkspaceJson = (ws?: SavedWorkspaceProject) => {
-    const targetWorkspace: SavedWorkspaceProject = ws || {
-      id: `ws-${Date.now()}`,
-      name: workspaceName.trim() || 'مشروع_الاستوديو',
-      updatedAt: new Date().toISOString(),
-      activeScreenId,
-      screens: screens.map((s) => ({ ...s, focusedNoteId: null })),
-    };
-
-    const { blob, fileName, stats } = buildWorkspaceSgdArchive(
-      targetWorkspace,
-      canvasRef.current
-    );
-    triggerSgdDownload(blob, fileName);
-
-    const kb = Math.max(1, Math.round(stats.compressedBytes / 1024));
-    const assetsNote =
-      stats.assetsCount > 0
-        ? t(` + ${stats.assetsCount} صور مدمجة`, ` + ${stats.assetsCount} embedded images`)
-        : '';
-    showToast(
-      t(
-        `تم تصدير حزمة (.sgd) المضغوطة (${stats.screensCount} شاشات${assetsNote} · ${kb}KB · ضغط ${stats.compressionRatioPct}%)`,
-        `Exported compressed .sgd bundle (${stats.screensCount} screens${assetsNote} · ${kb}KB · -${stats.compressionRatioPct}%)`
-      )
-    );
-  };
-
-  const handleExportCurrentScreenJson = () => {
-    const { blob, fileName, stats } = buildSingleScreenSgdArchive(project, canvasRef.current);
-    triggerSgdDownload(blob, fileName);
-    const kb = Math.max(1, Math.round(stats.compressedBytes / 1024));
-    showToast(
-      t(
-        `تم تصدير حزمة الشاشة الحالية (.sgd · ${kb}KB · ضغط ${stats.compressionRatioPct}%)`,
-        `Exported Active Screen .sgd bundle (${kb}KB · -${stats.compressionRatioPct}%)`
-      )
-    );
-  };
-
-  const applyParsedImportResult = (result: ParsedSgdImportResult): boolean => {
-    if (!result.ok) {
-      showToast(
-        t(
-          `تعذر قراءة الملف: ${result.error}`,
-          `Failed to import file: ${result.error}`
-        )
-      );
-      return false;
-    }
-
-    setIsLibraryModalOpen(false);
-    setPendingImport(result);
-    return true;
-  };
-
-  const handleExecuteImportDecision = (mode: SgdImportDecisionMode) => {
-    if (!pendingImport) return;
-    const result = pendingImport;
-    setPendingImport(null);
-
-    const incomingRawScreens =
-      result.archiveType === 'workspace' ? result.screens : [result.screen];
-    const incomingSanitized = incomingRawScreens.map((s, idx) =>
-      normalizeScreen(s, idx + 1)
-    );
-    const formatBadge = result.sourceFormat === 'sgd' ? '.sgd' : '.json';
-    const assetsInfo =
-      result.assetsRestored > 0
-        ? t(
-            ` + ${result.assetsRestored} صور مدمجة`,
-            ` + ${result.assetsRestored} embedded images`
-          )
-        : '';
-
-    // Mode 2: Merge Incoming Screens into Current Project
-    if (mode === 'merge') {
-      const existingIds = new Set(screens.map((s) => s.id));
-      const mergedIncoming = incomingSanitized.map((scr, idx) => {
-        const nextId = existingIds.has(scr.id)
-          ? `screen-${Date.now()}-${idx + 1}`
-          : scr.id;
-        existingIds.add(nextId);
-        return {
-          ...scr,
-          id: nextId,
-          name: existingIds.size > 1 ? scr.name : scr.name,
-          focusedNoteId: null,
-        };
-      });
-
-      const combinedScreens = [...screens, ...mergedIncoming];
-      const nextActiveId = mergedIncoming[0]?.id || activeScreenId;
-      setScreens(combinedScreens);
-      setActiveScreenId(nextActiveId);
-      const activeProj =
-        combinedScreens.find((s) => s.id === nextActiveId) || combinedScreens[0];
-      pushSyncToServer(combinedScreens, nextActiveId, activeProj, true);
-
-      showToast(
-        t(
-          `تم دمج (${mergedIncoming.length}) شاشات من (${formatBadge}) مع المشروع الحالي (الإجمالي: ${combinedScreens.length} شاشات${assetsInfo})`,
-          `Merged (${mergedIncoming.length}) screens from (${formatBadge}) into current project (Total: ${combinedScreens.length} screens${assetsInfo})`
-        )
-      );
-      return;
-    }
-
-    // Mode 1 & Mode 3: Save Current First (if save_and_open) -> Then Open New
-    let nextLibrary = [...savedWorkspaces];
-    if (mode === 'save_and_open') {
-      const currentSnapshot: SavedWorkspaceProject = {
-        id: `ws-${Date.now()}-prev`,
-        name:
-          workspaceName.trim() ||
-          t('مشروع محفوظ تلقائياً', 'Auto-Saved Workspace'),
-        updatedAt: new Date().toISOString(),
-        activeScreenId,
-        screens,
-      };
-      nextLibrary = [currentSnapshot, ...nextLibrary];
-      persistSavedWorkspaces(nextLibrary);
-    }
-
-    const importedName =
-      result.archiveType === 'workspace'
-        ? result.workspaceName || t('مشروع مستورد', 'Imported Project')
-        : result.screen.name || t('شاشة مستوردة', 'Imported Screen');
-
-    const nextActiveId =
-      result.archiveType === 'workspace' &&
-      incomingSanitized.some((s) => s.id === result.activeScreenId)
-        ? result.activeScreenId
-        : incomingSanitized[0].id;
-
-    setHistoryByScreen({});
-    setContextMenu(null);
-    setEditorBlinkingKeys(new Set());
-    setWorkspaceName(importedName);
-    setScreens(incomingSanitized);
-    setActiveScreenId(nextActiveId);
-    const activeProj =
-      incomingSanitized.find((s) => s.id === nextActiveId) ||
-      incomingSanitized[0];
-    pushSyncToServer(incomingSanitized, nextActiveId, activeProj, true);
-
-    if (mode === 'save_and_open') {
-      showToast(
-        t(
-          `تم حفظ المشروع السابق وفتح "${importedName}" (${incomingSanitized.length} شاشات${assetsInfo})`,
-          `Saved previous workspace & opened "${importedName}" (${incomingSanitized.length} screens${assetsInfo})`
-        )
-      );
-    } else {
-      showToast(
-        t(
-          `تم فتح "${importedName}" مباشرة (${incomingSanitized.length} شاشات${assetsInfo})`,
-          `Opened "${importedName}" directly (${incomingSanitized.length} screens${assetsInfo})`
-        )
-      );
-    }
-  };
-
-  const handleImportJsonText = (rawText: string): boolean => {
-    const res = parseRawJsonString(rawText);
-    return applyParsedImportResult(res);
-  };
-
-  const handleImportJSONFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    const result = await readSgdOrJsonFile(file);
-    applyParsedImportResult(result);
-  };
-
-  const handleTriggerImportDialog = async () => {
-    if (isTauriRuntime()) {
-      const nativeFile = await openStudioNativeProjectFile();
-      if (nativeFile === 'cancelled') return;
-      if (nativeFile instanceof File) {
-        const result = await readSgdOrJsonFile(nativeFile);
-        applyParsedImportResult(result);
-        return;
-      }
-    }
-    fileInputRef.current?.click();
-  };
-
-  const handleWorkspaceDropFile = async (e: React.DragEvent<HTMLDivElement>) => {
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    const lower = file.name.toLowerCase();
-    if (lower.endsWith('.sgd') || lower.endsWith('.json')) {
-      e.preventDefault();
-      e.stopPropagation();
-      const result = await readSgdOrJsonFile(file);
-      applyParsedImportResult(result);
-    }
-  };
+  // (Extracted handlers live in useWorkspaceStorage, useWorkspaceSync, useLaserAndDrawing, useCanvasInteraction)
 
   // Dedicated Pure Live Output Window (bound to its specific screenId)
   if (liveRoute.isLiveOutput || isInAppLiveOutput) {
@@ -3652,46 +1045,56 @@ export function App() {
 
   const activeScreenIsLive = isScreenLiveOpen(project.id);
 
-  // Pure Multi-Screen Wall Mode: 100% Distraction-Free Spatial Display of All Screens in their exact positions
-  if (isPureWallMode) {
-    return (
-      <div
-        dir={lang === 'en' ? 'ltr' : 'rtl'}
-        className="h-screen w-screen overflow-hidden bg-[#070A10] select-none"
-      >
-        <MultiScreenWallStage
-          screens={screens}
-          activeScreenId={project.id}
-          isPureMode={true}
-          lang={lang}
-          activeLaser={laser}
-          editorBlinkingKeys={editorBlinkingKeys}
-          editorBlinkPhaseOn={editorBlinkPhaseOn}
-          editorIdentifyFlash={editorIdentifyFlash}
-          flashingScreenId={flashingScreenId}
-          editorIdentifyFlashIntensity={editorIdentifyFlashIntensityRef.current}
-          clockTick={clockTick}
-          isScreenLiveOpen={isScreenLiveOpen}
-          onSelectScreen={(scrId) => setActiveScreenId(scrId)}
-          onFocusSingleScreen={(scrId) => {
-            setActiveScreenId(scrId);
-            setIsPureWallMode(false);
-            setIsPanoramicWallView(false);
-            setAutoFit(true);
-          }}
-          onFlashScreen={(scrId) => handleIdentifyScreen(scrId)}
-          onUpdateScreensPositions={handleUpdateScreensPositions}
-          onTogglePureMode={(nextPure) => setIsPureWallMode(Boolean(nextPure))}
-          onExitWallView={() => {
-            setIsPureWallMode(false);
-            setIsPanoramicWallView(false);
-          }}
-        />
-      </div>
-    );
-  }
-
+  // Keep PiP hidden broadcast canvas + video persistently mounted across Normal, Panoramic, and Pure Wall modes
   return (
+    <>
+      <video
+        ref={pipVideoRef}
+        muted
+        playsInline
+        aria-hidden="true"
+        className="fixed -top-[9999px] -left-[9999px] w-1 h-1 opacity-0 pointer-events-none"
+      />
+      <canvas
+        ref={pipCanvasRef}
+        aria-hidden="true"
+        className="fixed -top-[9999px] -left-[9999px] opacity-0 pointer-events-none"
+      />
+      {isPureWallMode ? (
+        <div
+          dir={lang === 'en' ? 'ltr' : 'rtl'}
+          className="h-screen w-screen overflow-hidden bg-[#070A10] select-none"
+        >
+          <MultiScreenWallStage
+            screens={screens}
+            activeScreenId={project.id}
+            isPureMode={true}
+            lang={lang}
+            activeLaser={laser}
+            editorBlinkingKeys={editorBlinkingKeys}
+            editorBlinkPhaseOn={editorBlinkPhaseOn}
+            editorIdentifyFlash={editorIdentifyFlash}
+            flashingScreenId={flashingScreenId}
+            editorIdentifyFlashIntensity={editorIdentifyFlashIntensityRef.current}
+            clockTick={clockTick}
+            isScreenLiveOpen={isScreenLiveOpen}
+            onSelectScreen={(scrId) => setActiveScreenId(scrId)}
+            onFocusSingleScreen={(scrId) => {
+              setActiveScreenId(scrId);
+              setIsPureWallMode(false);
+              setIsPanoramicWallView(false);
+              setAutoFit(true);
+            }}
+            onFlashScreen={(scrId) => handleIdentifyScreen(scrId)}
+            onUpdateScreensPositions={handleUpdateScreensPositions}
+            onTogglePureMode={(nextPure) => setIsPureWallMode(Boolean(nextPure))}
+            onExitWallView={() => {
+              setIsPureWallMode(false);
+              setIsPanoramicWallView(false);
+            }}
+          />
+        </div>
+      ) : (
     <div
       dir={lang === 'en' ? 'ltr' : 'rtl'}
       onDragOver={(e) => {
@@ -3705,7 +1108,7 @@ export function App() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".sgd,.json,application/json,application/octet-stream"
+        accept=".sgd,.json,.xml,application/json,application/xml,text/xml,application/octet-stream"
         onChange={handleImportJSONFile}
         className="hidden"
       />
@@ -3832,6 +1235,21 @@ export function App() {
             title={t('[التصدير والتقارير] فتح تقرير الألوان والمعايرة', '[Export & Reports] Open Color & Calibration Report')}
           >
             <ChartBar weight="bold" className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsArenaModalOpen(true)}
+            className="h-7 px-2 flex items-center justify-center gap-1 rounded-none bg-[#0F2922] hover:bg-[#163D33] border border-[#10B981] text-[#34D399] hover:text-[#A7F3D0] shrink-0 cursor-pointer transition-colors"
+            title={t(
+              '[Resolume Arena] جسر التكامل مع Arena: تصدير واستيراد الشاشات (.XML) + خريطة الـ Composition + الربط الحي',
+              '[Resolume Arena] Arena Bridge: Export/Import Advanced Output (.XML) + Composition Atlas + Live API'
+            )}
+          >
+            <Broadcast weight="bold" className="w-3.5 h-3.5" />
+            <span dir="ltr" className="text-[10px] font-mono font-bold tracking-wider">
+              ARENA
+            </span>
           </button>
         </div>
 
@@ -4015,33 +1433,24 @@ export function App() {
                 }}
                 isLiveFrozen={isLiveFrozen}
                 onToggleLiveFrozen={() => {
-                  setIsLiveFrozen((prev) => {
-                    const next = !prev;
-                    if (!next) {
-                      const syncMsg: SyncPayload = {
-                        type: 'PROJECT_UPDATE',
-                        screenId: project.id,
-                        project,
-                        timestamp: Date.now(),
-                      };
-                      broadcastChannelRef.current?.postMessage(syncMsg);
-                      pushSyncToServer(screens, activeScreenId, project, true);
-                      showToast(
-                        t(
-                          'تم استئناف البث وإرسال التعديلات للشاشة الحية',
-                          'Resumed Live Sync & pushed updates'
-                        )
-                      );
-                    } else {
-                      showToast(
-                        t(
-                          'تم تجميد شاشة العرض المباشر مؤقتاً للتعديل المحلي',
-                          'Live Output frozen temporarily for local editing'
-                        )
-                      );
-                    }
-                    return next;
-                  });
+                  const next = !isLiveFrozen;
+                  setIsLiveFrozen(next);
+                  if (!next) {
+                    sendImmediateProjectUpdate();
+                    showToast(
+                      t(
+                        'تم استئناف البث وإرسال التعديلات للشاشة الحية',
+                        'Resumed Live Sync & pushed updates'
+                      )
+                    );
+                  } else {
+                    showToast(
+                      t(
+                        'تم تجميد شاشة العرض المباشر مؤقتاً للتعديل المحلي',
+                        'Live Output frozen temporarily for local editing'
+                      )
+                    );
+                  }
                 }}
                 isNewScreenModalOpen={isNewScreenModalOpen}
                 setIsNewScreenModalOpen={setIsNewScreenModalOpen}
@@ -4436,9 +1845,9 @@ export function App() {
                         setZoom((z) => Math.min(ZOOM_MAX, Number(Math.max(1.5, z * 1.6).toFixed(3))));
                       }}
                       title={t('تكبير الفحص على الرادار (Zoom In)', 'Zoom In Inspection')}
-                      className="w-5 h-5 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                      className="w-5 h-5 flex items-center justify-center studio-btn-elevated border rounded-none cursor-pointer"
                     >
-                      <MagnifyingGlassPlus weight="bold" className="w-3 h-3 text-[#1C1E22]" />
+                      <MagnifyingGlassPlus weight="bold" className="w-3 h-3" />
                     </button>
                     <button
                       type="button"
@@ -4447,25 +1856,25 @@ export function App() {
                         recalculateFitZoom();
                       }}
                       title={t('احتواء كامل الشاشة (Fit)', 'Fit Screen')}
-                      className="w-5 h-5 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                      className="w-5 h-5 flex items-center justify-center studio-btn-elevated border rounded-none cursor-pointer"
                     >
-                      <CornersOut weight="bold" className="w-3 h-3 text-[#1C1E22]" />
+                      <CornersOut weight="bold" className="w-3 h-3" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setPan({ x: 0, y: 0 })}
                       title={t('توسيط الكاميرا (Center)', 'Center Camera')}
-                      className="w-5 h-5 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                      className="w-5 h-5 flex items-center justify-center studio-btn-elevated border rounded-none cursor-pointer"
                     >
-                      <Crosshair weight="bold" className="w-3 h-3 text-[#1C1E22]" />
+                      <Crosshair weight="bold" className="w-3 h-3" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setIsMinimapOpen(false)}
                       title={t('إغلاق الرادار المصغر', 'Close Minimap Radar')}
-                      className="w-5 h-5 flex items-center justify-center bg-[#9FA6B3] hover:bg-[#B4BAC6] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                      className="w-5 h-5 flex items-center justify-center studio-btn border rounded-none cursor-pointer"
                     >
-                      <X weight="bold" className="w-3 h-3 text-[#1C1E22]" />
+                      <X weight="bold" className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
@@ -4538,9 +1947,9 @@ export function App() {
                 <button
                   type="button"
                   onClick={() => setContextMenu(null)}
-                  className="p-1 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                  className="p-1 studio-btn-elevated border rounded-none cursor-pointer"
                 >
-                  <X weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                  <X weight="bold" className="w-3.5 h-3.5" />
                 </button>
               </div>
 
@@ -4591,10 +2000,10 @@ export function App() {
                   <button
                     type="button"
                     onClick={() => setIsContextColorPickerOpen(true)}
-                    className="flex items-center gap-1 px-1.5 h-5 rounded-none bg-[#C4C9D4] hover:bg-[#D2D7E0] text-[#1C1E22] border border-[#3A3E47] text-[10px] font-bold cursor-pointer"
+                    className="flex items-center gap-1 px-1.5 h-5 rounded-none studio-btn-elevated border text-[10px] font-bold cursor-pointer"
                     title={t('منتقي ألوان احترافي', 'Pro Color Picker')}
                   >
-                    <Palette weight="bold" className="w-3 h-3 text-[#1C1E22]" />
+                    <Palette weight="bold" className="w-3 h-3" />
                     <span>{t('مخصص', 'Custom')}</span>
                   </button>
                 </div>
@@ -4613,10 +2022,10 @@ export function App() {
                         prev ? { ...prev, scope: 'single', errorMsg: null } : null
                       )
                     }
-                    className={`w-full text-right px-2.5 py-1.5 rounded-none border border-[#3A3E47] text-xs font-bold flex items-center justify-between cursor-pointer ${
+                    className={`w-full text-right px-2.5 py-1.5 rounded-none border text-xs font-bold flex items-center justify-between cursor-pointer ${
                       contextMenu.scope === 'single'
-                        ? 'bg-[#C8CDD8] text-[#1C1E22]'
-                        : 'bg-[#9FA6B3] hover:bg-[#B4BAC6] text-[#1C1E22]'
+                        ? 'studio-btn-active'
+                        : 'studio-btn'
                     }`}
                   >
                     <span>
@@ -4626,7 +2035,7 @@ export function App() {
                       )}
                     </span>
                     {contextMenu.scope === 'single' && (
-                      <Check weight="bold" className="w-3.5 h-3.5 text-[#1C1E22] shrink-0" />
+                      <Check weight="bold" className="w-3.5 h-3.5 shrink-0" />
                     )}
                   </button>
 
@@ -4637,15 +2046,15 @@ export function App() {
                         prev ? { ...prev, scope: 'color-group', errorMsg: null } : null
                       )
                     }
-                    className={`w-full text-right px-2.5 py-1.5 rounded-none border border-[#3A3E47] text-xs font-bold flex items-center justify-between cursor-pointer ${
+                    className={`w-full text-right px-2.5 py-1.5 rounded-none border text-xs font-bold flex items-center justify-between cursor-pointer ${
                       contextMenu.scope === 'color-group'
-                        ? 'bg-[#C8CDD8] text-[#1C1E22]'
-                        : 'bg-[#9FA6B3] hover:bg-[#B4BAC6] text-[#1C1E22]'
+                        ? 'studio-btn-active'
+                        : 'studio-btn'
                     }`}
                   >
                     <span className="flex items-center gap-1.5">
                       <span
-                        className="w-2.5 h-2.5 rounded-none border border-[#1C1E22]"
+                        className="w-2.5 h-2.5 rounded-none border border-[#3A3E47]"
                         style={{ backgroundColor: contextMenu.effectiveColor }}
                       />
                       <span>
@@ -4656,7 +2065,7 @@ export function App() {
                       </span>
                     </span>
                     {contextMenu.scope === 'color-group' && (
-                      <Check weight="bold" className="w-3.5 h-3.5 text-[#1C1E22] shrink-0" />
+                      <Check weight="bold" className="w-3.5 h-3.5 shrink-0" />
                     )}
                   </button>
                 </div>
@@ -4697,7 +2106,7 @@ export function App() {
                       key={chip}
                       type="button"
                       onClick={() => handleSaveContextMenuNote(chip)}
-                      className="px-2 py-0.5 rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] border border-[#3A3E47] text-[10px] font-bold text-[#1C1E22] cursor-pointer"
+                      className="px-2 py-0.5 rounded-none studio-btn-elevated border text-[10px] font-bold cursor-pointer"
                     >
                       {chip}
                     </button>
@@ -4736,7 +2145,7 @@ export function App() {
                     });
                     showToast(t('تم تلوين وتحديد الصف بالكامل', 'Selected entire row'));
                   }}
-                  className="py-1 px-1.5 rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] border border-[#3A3E47] text-[#1C1E22] text-[10px] font-bold cursor-pointer"
+                  className="py-1 px-1.5 rounded-none studio-btn-elevated border text-[10px] font-bold cursor-pointer"
                 >
                   {t('تحديد الصف بالكامل ↔', 'Select Entire Row ↔')}
                 </button>
@@ -4762,7 +2171,7 @@ export function App() {
                     });
                     showToast(t('تم تلوين وتحديد العمود بالكامل', 'Selected entire column'));
                   }}
-                  className="py-1 px-1.5 rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] border border-[#3A3E47] text-[#1C1E22] text-[10px] font-bold cursor-pointer"
+                  className="py-1 px-1.5 rounded-none studio-btn-elevated border text-[10px] font-bold cursor-pointer"
                 >
                   {t('تحديد العمود بالكامل ↕', 'Select Entire Col ↕')}
                 </button>
@@ -4773,7 +2182,7 @@ export function App() {
                 <button
                   type="button"
                   onClick={() => handleSaveContextMenuNote()}
-                  className="flex-1 py-1.5 rounded-none bg-[#C8CDD8] hover:bg-[#D4D9E2] border border-[#3A3E47] text-[#1C1E22] font-bold text-xs cursor-pointer"
+                  className="flex-1 py-1.5 rounded-none studio-btn-elevated border font-bold text-xs cursor-pointer"
                 >
                   {t('حفظ الملاحظة', 'Save Note')}
                 </button>
@@ -4781,10 +2190,10 @@ export function App() {
                   <button
                     type="button"
                     onClick={() => handleDeleteNoteById(contextMenu.existingNoteId!)}
-                    className="p-1.5 rounded-none bg-[#9FA6B3] hover:bg-[#B4BAC6] border border-[#3A3E47] text-[#1C1E22] cursor-pointer"
+                    className="p-1.5 rounded-none studio-btn border cursor-pointer"
                     title={t('حذف الملاحظة', 'Delete Note')}
                   >
-                    <Trash weight="bold" className="w-4 h-4 text-[#1C1E22]" />
+                    <Trash weight="bold" className="w-4 h-4" />
                   </button>
                 )}
               </div>
@@ -4860,13 +2269,13 @@ export function App() {
                         type="button"
                         title={title}
                         onClick={() => handleChangeLaserMode(id)}
-                        className={`w-6 h-6 flex items-center justify-center rounded-none border cursor-pointer transition-colors ${
+                        className={`w-6 h-6 flex items-center justify-center rounded-none border cursor-pointer ${
                           isModeActive
-                            ? 'bg-[#DCE0E8] text-[#1C1E22] border-[#FFFFFF] ring-1 ring-[#FEF08A]'
-                            : 'bg-[#9FA6B3] hover:bg-[#B4BAC6] text-[#1C1E22] border-[#3A3E47]'
+                            ? 'studio-btn-active ring-1 ring-[#FEF08A]'
+                            : 'studio-btn'
                         }`}
                       >
-                        <Icon weight={isModeActive ? 'fill' : 'bold'} className="w-3.5 h-3.5 text-[#1C1E22]" />
+                        <Icon weight={isModeActive ? 'fill' : 'bold'} className="w-3.5 h-3.5" />
                       </button>
                     );
                   })}
@@ -4880,7 +2289,7 @@ export function App() {
                       type="button"
                       onClick={handleClearLaserStroke}
                       title={t('مسح خط الليزر المرسوم', 'Clear Drawn Laser Line')}
-                      className="w-6 h-6 flex items-center justify-center rounded-none bg-[#B4BAC6] hover:bg-[#EF4444] hover:text-[#FFFFFF] border border-[#3A3E47] text-[#1C1E22] cursor-pointer transition-colors"
+                      className="w-6 h-6 flex items-center justify-center rounded-none studio-btn-elevated hover:bg-[#EF4444] hover:text-[#FFFFFF] border cursor-pointer"
                     >
                       <Trash weight="bold" className="w-3.5 h-3.5" />
                     </button>
@@ -5003,7 +2412,7 @@ export function App() {
                         onClick={() => setDrawStrokeWidth(w)}
                         className={`w-6 h-6 flex items-center justify-center rounded-none border cursor-pointer transition-colors ${
                           isSelected
-                            ? 'bg-[#DCE0E8] text-[#111317] border-[#FFFFFF]'
+                            ? 'studio-btn-active'
                             : 'bg-[#2C3038] hover:bg-[#434956] text-[#DCE0E8] border-[#3F4552]'
                         }`}
                       >
@@ -5783,7 +3192,6 @@ export function App() {
         workspaceName={workspaceName}
         onWorkspaceNameChange={setWorkspaceName}
         currentScreens={screens}
-        currentProject={project}
         savedWorkspaces={savedWorkspaces}
         lang={lang}
         onSaveWorkspace={handleSaveWorkspace}
@@ -5865,12 +3273,14 @@ export function App() {
         onClose={() => setIsPatchSheetModalOpen(false)}
         screens={screens}
         activeScreen={project}
+        lang={lang}
       />
 
       {/* Live Director Shortcuts HUD Modal */}
       <ShortcutsHudModal
         isOpen={isShortcutsModalOpen}
         onClose={() => setIsShortcutsModalOpen(false)}
+        lang={lang}
         onTriggerFlash={() => handleIdentifyScreen(project.id)}
         onTogglePureMode={() => {
           setIsPanoramicWallView(true);
@@ -5891,7 +3301,103 @@ export function App() {
         onClose={() => setIsHelpModalOpen(false)}
         lang={lang}
       />
+
+      {/* Resolume Arena Integration Bridge Modal */}
+      <ResolumeArenaModal
+        isOpen={isArenaModalOpen}
+        onClose={() => setIsArenaModalOpen(false)}
+        screens={screens}
+        activeScreen={project}
+        workspaceName={workspaceName}
+        lang={lang}
+        isLiveConnected={activeScreenIsLive}
+        isPipActive={isPipActive}
+        onSyncBeforeOpenOutput={() => {
+          pushSyncToServer(screens, activeScreenId, project, true);
+        }}
+        onTogglePipStream={async () => {
+          try {
+            if (
+              document.pictureInPictureElement ||
+              isPipActive ||
+              pipStreamRef.current
+            ) {
+              await stopPipBroadcast(true);
+              return;
+            }
+            const pipCanvas = pipCanvasRef.current;
+            const video = pipVideoRef.current;
+            if (!pipCanvas || !video || typeof pipCanvas.captureStream !== 'function') {
+              showToast(
+                t(
+                  'المتصفح الحالي لا يدعم نافذة الفيديو العائمة PiP — استخدم زر فتح النافذة المستقلة',
+                  'Browser does not support PiP — use Open Separate Window instead'
+                )
+              );
+              return;
+            }
+            await stopPipBroadcast(false);
+            paintPipCanvas(undefined, true);
+            const stream = pipCanvas.captureStream(30);
+            pipStreamRef.current = stream;
+            video.srcObject = stream;
+            video.onleavepictureinpicture = () => {
+              void stopPipBroadcast(false);
+            };
+            await video.play();
+            await video.requestPictureInPicture();
+            setIsPipActive(true);
+            setIsArenaModalOpen(false);
+            showToast(
+              t(
+                'تم تشغيل نافذة البث العائمة المتزامنة (PiP) — يمكنك الآن التحكم في الشاشة ومشاهدتها حياً!',
+                'Launched floating synchronous PiP window — control your screen live!'
+              )
+            );
+          } catch {
+            await stopPipBroadcast(true);
+            showToast(
+              t(
+                'تعذر فتح نافذة PiP داخل المعاينة — اضغط على (فتح شاشة البث في نافذة مستقلة)',
+                'Could not open PiP here — click Open Live Output in Separate Window'
+              )
+            );
+          }
+        }}
+        onImportArenaScreens={handleImportArenaScreens}
+        onMatchActiveScreenResolution={(w, h) => {
+          handleUpdateProject((prev) => ({
+            ...prev,
+            compWidth: Math.max(64, Math.min(16384, Math.round(w))),
+            compHeight: Math.max(64, Math.min(16384, Math.round(h))),
+          }));
+          showToast(
+            t(
+              `تمت مطابقة أبعاد الشاشة النشطة مع Arena Composition (${w}×${h}px)`,
+              `Matched active screen resolution to Arena Composition (${w}×${h}px)`
+            )
+          );
+        }}
+        onUpdateActiveNdiConfig={(patch) => {
+          handleUpdateProject((prev) => ({
+            ...prev,
+            ndiConfig: {
+              ...DEFAULT_NDI_CONFIG,
+              ...(prev.ndiConfig || {}),
+              ...patch,
+            },
+          }));
+          showToast(
+            t(
+              `تم ضبط وضع البث المتزامن (${patch.onlySelectedAndGuidesInAlpha ? 'شفافية التحديد والليزر' : 'شبكة كاملة'}) لبرنامج Resolume Arena`,
+              `Updated live sync output mode for Resolume Arena`
+            )
+          );
+        }}
+      />
     </div>
+      )}
+    </>
   );
 }
 

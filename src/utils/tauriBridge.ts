@@ -112,6 +112,18 @@ async function tauriInvoke<T = unknown>(
   return null;
 }
 
+async function tauriInvokeStrict<T = unknown>(
+  cmd: string,
+  args?: Record<string, unknown>
+): Promise<T> {
+  const fn =
+    window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__?.invoke;
+  if (typeof fn !== 'function') {
+    throw new Error('Tauri invoke unavailable');
+  }
+  return await fn<T>(cmd, args);
+}
+
 /**
  * Save a binary Blob (.sgd, .png, .json, .txt) using:
  * 1. Tauri Native OS Save Dialog + Native File System write (when in Tauri)
@@ -139,23 +151,26 @@ export async function saveStudioBinaryFile(
   if (isTauriRuntime()) {
     try {
       let targetPath: string | null = null;
+      let dialogSucceeded = false;
 
       if (window.__TAURI__?.dialog?.save) {
         targetPath = await window.__TAURI__.dialog.save({
           defaultPath: defaultFileName,
           filters: [{ name: filterName, extensions }],
         });
-      } else {
-        targetPath = await tauriInvoke<string | null>('plugin:dialog|save', {
+        dialogSucceeded = true;
+      } else if (window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__?.invoke) {
+        targetPath = await tauriInvokeStrict<string | null>('plugin:dialog|save', {
           options: {
             defaultPath: defaultFileName,
             filters: [{ name: filterName, extensions }],
           },
         });
+        dialogSucceeded = true;
       }
 
-      // If user explicitly cancelled the native save dialog, stop here
-      if (targetPath === null && (window.__TAURI__?.dialog?.save || window.__TAURI_INTERNALS__)) {
+      // Only treat null as explicit user cancellation if the native dialog actually ran
+      if (targetPath === null && dialogSucceeded) {
         return { saved: false };
       }
 
@@ -169,7 +184,7 @@ export async function saveStudioBinaryFile(
         }
 
         // Fallback to raw Tauri v2 fs plugin invoke
-        await tauriInvoke('plugin:fs|write_file', {
+        await tauriInvokeStrict('plugin:fs|write_file', {
           path: targetPath,
           data: Array.from(bytes),
         });
@@ -206,8 +221,8 @@ export async function openStudioNativeProjectFile(): Promise<
     let selected: string | string[] | null = null;
     const filters = [
       {
-        name: 'Studio Grid Project (.sgd, .json)',
-        extensions: ['sgd', 'json'],
+        name: 'Studio Grid & Resolume Arena (.sgd, .json, .xml)',
+        extensions: ['sgd', 'json', 'xml'],
       },
     ];
 
@@ -255,7 +270,11 @@ export async function openStudioNativeProjectFile(): Promise<
     if (!bytes) return null;
 
     const fileName = filePath.split(/[\\/]/).pop() || 'project.sgd';
-    const blob = new Blob([bytes.buffer as ArrayBuffer], {
+    const slicedBuffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength
+    ) as ArrayBuffer;
+    const blob = new Blob([slicedBuffer], {
       type: fileName.toLowerCase().endsWith('.json')
         ? 'application/json'
         : 'application/octet-stream',
@@ -277,6 +296,10 @@ export async function getAvailableTauriMonitors(): Promise<TauriMonitor[]> {
   try {
     if (window.__TAURI__?.window?.availableMonitors) {
       return await window.__TAURI__.window.availableMonitors();
+    }
+    const viaInvoke = await tauriInvoke<TauriMonitor[]>('plugin:window|available_monitors');
+    if (Array.isArray(viaInvoke)) {
+      return viaInvoke;
     }
   } catch {
     // ignore
@@ -540,6 +563,18 @@ export async function copyTextWithTauriFallback(text: string): Promise<boolean> 
  * Caps NDI transmission buffer to max 3840x2160 (4K UHD) to protect IPC throughput on 8K/12K walls.
  */
 let ndiScratchCanvas: HTMLCanvasElement | null = null;
+const ndiInFlightScreens = new Set<string>();
+
+/**
+ * Release the offscreen NDI scratch canvas immediately to free GPU/RAM buffers.
+ */
+export function disposeTauriNdiScratchCanvas(): void {
+  if (ndiScratchCanvas) {
+    ndiScratchCanvas.width = 0;
+    ndiScratchCanvas.height = 0;
+    ndiScratchCanvas = null;
+  }
+}
 
 export async function pushTauriNdiCanvasFrame(
   screenId: string,
@@ -550,6 +585,12 @@ export async function pushTauriNdiCanvasFrame(
   if (!isTauriRuntime() || !canvas || canvas.width === 0 || canvas.height === 0) {
     return false;
   }
+
+  // Drop overlapping interval ticks while a frame for this screen is already in flight over IPC
+  if (ndiInFlightScreens.has(screenId)) {
+    return false;
+  }
+  ndiInFlightScreens.add(screenId);
 
   try {
     const maxDim = 3840;
@@ -593,16 +634,21 @@ export async function pushTauriNdiCanvasFrame(
     return Boolean(res);
   } catch {
     return false;
+  } finally {
+    ndiInFlightScreens.delete(screenId);
   }
 }
 
 /**
- * Stop an active Tauri NDI Sender stream for a specific screen
+ * Stop an active Tauri NDI Sender stream for a specific screen and dispose scratch canvas memory
  */
 export async function stopTauriNdiStream(
   screenId: string,
   sourceName?: string
 ): Promise<void> {
+  ndiInFlightScreens.delete(screenId);
+  disposeTauriNdiScratchCanvas();
+
   if (!isTauriRuntime()) return;
   try {
     await tauriInvoke('ndi_stop_stream', {

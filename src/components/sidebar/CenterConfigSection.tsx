@@ -282,7 +282,7 @@ export const CenterConfigSection: React.FC<CenterConfigSectionProps> = React.mem
                   }))
                 }
                 title={t('إعادة تصفير إزاحة المركز (0,0)', 'Reset Center Offset (0,0)')}
-                className="w-7 h-7 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer shrink-0 transition-colors"
+                className="w-7 h-7 flex items-center justify-center studio-btn-elevated border rounded-none cursor-pointer shrink-0"
               >
                 <ArrowCounterClockwise weight="bold" className="w-3.5 h-3.5" />
               </button>
@@ -296,7 +296,7 @@ export const CenterConfigSection: React.FC<CenterConfigSectionProps> = React.mem
                 <button
                   type="button"
                   onClick={() => setPickerTarget('stroke')}
-                  className="w-6 h-6 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none flex items-center justify-center cursor-pointer shrink-0 transition-colors"
+                  className="w-6 h-6 studio-btn-elevated border rounded-none flex items-center justify-center cursor-pointer shrink-0"
                   title={t('لون مخصص للخطين وإطار الدائرة (Stroke Color)', 'Custom Stroke Color')}
                 >
                   <Palette weight="bold" className="w-3.5 h-3.5" />
@@ -404,7 +404,7 @@ export const CenterConfigSection: React.FC<CenterConfigSectionProps> = React.mem
                   <button
                     type="button"
                     onClick={() => setPickerTarget('fill')}
-                    className="w-5 h-5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none flex items-center justify-center cursor-pointer shrink-0"
+                    className="w-5 h-5 studio-btn-elevated border rounded-none flex items-center justify-center cursor-pointer shrink-0"
                     title={t('لون مخصص لتعبئة الدائرة (Fill Color)', 'Custom Fill Color')}
                   >
                     <Palette weight="bold" className="w-3 h-3" />

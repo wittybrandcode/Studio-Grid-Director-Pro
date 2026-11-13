@@ -490,9 +490,9 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer transition-colors"
+            className="p-1 studio-btn border rounded-none cursor-pointer"
           >
-            <X weight="bold" className="w-4 h-4 text-[#1C1E22]" />
+            <X weight="bold" className="w-4 h-4" />
           </button>
         </div>
 
@@ -655,7 +655,7 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsCanvasSamplerOpen(false)}
-                      className="px-1.5 py-0.5 bg-[#B4BAC6] text-[#1C1E22] text-[9px] font-bold rounded-none cursor-pointer"
+                      className="px-1.5 py-0.5 studio-btn border text-[9px] font-bold rounded-none cursor-pointer"
                     >
                       {t('إغلاق المعاينة', 'Close Sampler')}
                     </button>
@@ -686,13 +686,13 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
                         type="button"
                         onClick={() => setIsCanvasSamplerOpen((v) => !v)}
                         title={t('التقاط لون مباشرة من الكانفا والصورة المرجعية', 'Sample pixel directly from Studio Canvas')}
-                        className={`px-1.5 py-0.5 border border-[#3A3E47] rounded-none text-[9px] font-bold flex items-center gap-1 cursor-pointer ${
+                        className={`px-1.5 py-0.5 border rounded-none text-[9px] font-bold flex items-center gap-1 cursor-pointer ${
                           isCanvasSamplerOpen
-                            ? 'bg-[#DCE0E8] text-[#1C1E22] ring-1 ring-[#FFFFFF]'
-                            : 'bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22]'
+                            ? 'studio-btn-active ring-1 ring-[#FFFFFF]'
+                            : 'studio-btn'
                         }`}
                       >
-                        <Eyedropper weight="bold" className="w-3 h-3 text-[#1C1E22]" />
+                        <Eyedropper weight="bold" className="w-3 h-3" />
                         <span>{t('من الكانفا', 'Canvas')}</span>
                       </button>
                     )}
@@ -701,9 +701,9 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
                         type="button"
                         onClick={handleNativeEyeDropper}
                         title={t('التقاط لون من أي مكان على الشاشة', 'Pick color from screen')}
-                        className="px-1.5 py-0.5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-[9px] font-bold flex items-center gap-1 cursor-pointer"
+                        className="px-1.5 py-0.5 studio-btn border rounded-none text-[9px] font-bold flex items-center gap-1 cursor-pointer"
                       >
-                        <Eyedropper weight="bold" className="w-3 h-3 text-[#1C1E22]" />
+                        <Eyedropper weight="bold" className="w-3 h-3" />
                         <span>{t('قطارة', 'Screen')}</span>
                       </button>
                     )}
@@ -756,12 +756,12 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
                       setTimeout(() => setCopiedHex(false), 1200);
                     }}
                     title={t('نسخ كود HEX', 'Copy HEX')}
-                    className="p-1.5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                    className="p-1.5 studio-btn border rounded-none cursor-pointer"
                   >
                     {copiedHex ? (
-                      <Check weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                      <Check weight="bold" className="w-3.5 h-3.5" />
                     ) : (
-                      <CopySimple weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                      <CopySimple weight="bold" className="w-3.5 h-3.5" />
                     )}
                   </button>
                 </div>
@@ -823,13 +823,13 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
                   <button
                     type="button"
                     onClick={handleLegalizeRec709}
-                    className="w-full mt-1 py-1 px-2 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full mt-1 py-1 px-2 studio-btn border rounded-none text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
                     title={t(
                       'تعديل اللون تلقائياً ليتوافق مع النطاق الآمن للبث التلفزيوني Rec.709 (16-235)',
                       'Adjust color to Rec.709 Broadcast Safe legal range (16-235)'
                     )}
                   >
-                    <Sparkle weight="fill" className="w-3 h-3 text-[#1C1E22]" />
+                    <Sparkle weight="fill" className="w-3 h-3" />
                     <span>{t('ضبط للنطاق الآمن Rec.709', 'Legalize Rec.709')}</span>
                   </button>
                 ) : (
@@ -885,11 +885,11 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
                     onClick={() => setActiveSwatchTab(id)}
                     className={`py-1.5 px-2 text-[10px] font-bold flex items-center justify-center gap-1 border-b-2 rounded-none cursor-pointer transition-colors ${
                       active
-                        ? 'bg-[#C8CDD8] text-[#1C1E22] border-[#1C1E22]'
+                        ? 'studio-btn-elevated border-[#FACC15]'
                         : 'bg-[#2A2D34] hover:bg-[#32363F] text-[#DCE0E8] border-transparent'
                     }`}
                   >
-                    <Icon weight="bold" className={`w-3 h-3 ${active ? 'text-[#1C1E22]' : 'text-[#D0D5DE]'}`} />
+                    <Icon weight="bold" className="w-3 h-3" />
                     <span className="truncate">{label}</span>
                   </button>
                 );
@@ -1046,7 +1046,7 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 bg-[#9FA6B3] hover:bg-[#B4BAC6] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold cursor-pointer transition-colors"
+              className="px-3 py-1.5 studio-btn border rounded-none text-xs font-bold cursor-pointer"
             >
               {t('إلغاء', 'Cancel')}
             </button>
@@ -1054,9 +1054,9 @@ export const ColorPickerModal: React.FC<ColorPickerModalProps> = ({
               type="button"
               disabled={Boolean(lockedOwner)}
               onClick={handleConfirm}
-              className="px-4 py-1.5 bg-[#C8CDD8] hover:bg-[#D4D9E2] disabled:opacity-40 disabled:pointer-events-none text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="px-4 py-1.5 studio-btn-elevated disabled:opacity-40 disabled:pointer-events-none border rounded-none text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
-              <Check weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+              <Check weight="bold" className="w-3.5 h-3.5" />
               <span>{t('اعتماد اللون', 'Apply Color')}</span>
             </button>
           </div>

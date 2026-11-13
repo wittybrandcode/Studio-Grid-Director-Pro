@@ -1,12 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, Plugin} from 'vite';
+import { defineConfig, Plugin } from 'vite';
 
-function preventViteHmrReloadLoop(): Plugin {
+/**
+ * Isolated dev-server guard for cloud iframe preview environments where HMR WebSockets
+ * are disabled (`server.hmr = false`). Strictly `apply: 'serve'` so production builds
+ * and standalone Tauri desktop bundles are completely unaffected.
+ */
+function previewNoHmrReloadGuard(): Plugin {
   return {
-    name: 'prevent-vite-hmr-reload-loop',
+    name: 'preview-no-hmr-reload-guard',
+    apply: 'serve',
     configureServer(server) {
+      if (process.env.DISABLE_HMR !== 'true' && server.config.server.hmr !== false) {
+        return;
+      }
       server.middlewares.use((req, res, next) => {
         if (req.url && req.url.startsWith('/@vite/client')) {
           delete req.headers['if-none-match'];
@@ -24,14 +33,13 @@ function preventViteHmrReloadLoop(): Plugin {
               chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
             }
             let body = Buffer.concat(chunks).toString('utf8');
-            // Prevent Vite 8 client from polling and calling location.reload() when HMR is disabled
             body = body.replace(
               'if (payload.event === "vite:ws:disconnect") {',
               'if (false && payload.event === "vite:ws:disconnect") {'
             );
             body = body.replace(
               'transport.connect(createHMRHandler(handleMessage));',
-              '/* transport.connect disabled */'
+              '/* preview HMR transport disabled */'
             );
             res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
             res.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'));
@@ -48,7 +56,7 @@ export default defineConfig(() => {
   return {
     clearScreen: false,
     envPrefix: ['VITE_', 'TAURI_ENV_', 'TAURI_'],
-    plugins: [preventViteHmrReloadLoop(), react(), tailwindcss()],
+    plugins: [previewNoHmrReloadGuard(), react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),

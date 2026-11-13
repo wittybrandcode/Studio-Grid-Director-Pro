@@ -5,6 +5,7 @@ import {
   PRESET_PROJECT_TEMPLATES,
   StudioProject,
   SyncPayload,
+  UILanguage,
 } from '../types/studio';
 import {
   computeGrid,
@@ -13,6 +14,7 @@ import {
 } from '../utils/gridEngine';
 import {
   closeCurrentTauriWindowIfSecondary,
+  disposeTauriNdiScratchCanvas,
   emitTauriSyncEvent,
   isTauriRuntime,
   listenTauriSyncEvent,
@@ -76,6 +78,29 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
   const identifyTimerRef = useRef<number | null>(null);
   const identifyFlashStartRef = useRef<number>(0);
 
+  const [lang, setLang] = useState<UILanguage>(() => {
+    try {
+      const saved = localStorage.getItem('studio_grid_lang');
+      if (saved === 'en' || saved === 'ar' || saved === 'bilingual') return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return 'ar';
+  });
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'studio_grid_lang') {
+        const val = e.newValue;
+        if (val === 'en' || val === 'ar' || val === 'bilingual') {
+          setLang(val);
+        }
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const effectiveScreenId = screenId || project.id;
 
@@ -90,14 +115,14 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
     }, 2000);
   };
 
-  // Update browser tab / Tauri window title (tags with NDI_SOURCE :: when NDI is active for NDI Screen Capture / OBS discovery)
+  // Update browser tab / Tauri window title so OBS (Capture de fenêtre) and NDI Screen Capture can find it immediately
   useEffect(() => {
     const ndiCfg = project.ndiConfig;
+    const srcName = ndiCfg?.sourceName?.trim() || `SGD_${project.id}`;
     if (ndiCfg?.enabled) {
-      const srcName = ndiCfg.sourceName?.trim() || `SGD_${project.id}`;
-      document.title = `NDI_SOURCE :: ${srcName} — ${project.name} (${project.compWidth}×${project.compHeight})`;
+      document.title = `SGD_LIVE_OUTPUT :: NDI [${srcName}] — ${project.name} (${project.compWidth}×${project.compHeight})`;
     } else {
-      document.title = `${project.name} (${project.compWidth}×${project.compHeight})`;
+      document.title = `SGD_LIVE_OUTPUT :: ${project.name} (${project.compWidth}×${project.compHeight})`;
     }
   }, [project.id, project.name, project.compWidth, project.compHeight, project.ndiConfig]);
 
@@ -123,61 +148,98 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
   useEffect(() => {
     const targetQueryId = screenId || '*';
     let isMounted = true;
-
-    // Fetch current state from server immediately
-    fetch(`/api/screens/${encodeURIComponent(screenId || 'screen-1')}`, {
-      cache: 'no-store',
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (isMounted && data?.screen) {
-          setProject(data.screen);
-        }
-      })
-      .catch(() => {
-        // ignore network error (e.g. serverless Tauri runtime)
-      });
-
-    // Subscribe to real-time SSE stream for this specific screenId
     let es: EventSource | null = null;
-    try {
-      es = new EventSource(
-        `/api/screens-stream?role=output&screenId=${encodeURIComponent(targetQueryId)}`
-      );
+    let reconnectTimer: number | null = null;
+    let retryDelayMs = 1000;
 
-      es.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data) as SyncPayload;
-          if (!payload) return;
+    const fetchLatestSnapshot = () => {
+      const endpoint = screenId
+        ? `/api/screens/${encodeURIComponent(screenId)}`
+        : '/api/screens';
 
-          const payloadScreenId = payload.screenId || payload.project?.id;
-          if (screenId && payloadScreenId && payloadScreenId !== screenId) {
-            return;
+      fetch(endpoint, { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!isMounted || !data) return;
+          if (data.screen) {
+            setProject(data.screen);
+          } else if (Array.isArray(data.screens) && data.screens.length > 0) {
+            const match =
+              data.screens.find((s: StudioProject) => s.id === data.activeScreenId) ||
+              data.screens[0];
+            if (match) setProject(match);
           }
+        })
+        .catch(() => {
+          // ignore network error (e.g. serverless Tauri runtime)
+        });
+    };
 
-          if (payload.type === 'PROJECT_UPDATE' && payload.project) {
-            setProject(payload.project);
-          } else if (payload.type === 'LASER_MOVE') {
-            setLaser(payload.laser || null);
-          } else if (payload.type === 'IDENTIFY_SCREEN') {
-            triggerIdentifyFlash();
-          } else if (payload.type === 'BLINK_CELLS') {
-            if (payload.blinkActive && payload.blinkingCellKeys) {
-              setBlinkingKeys(new Set(payload.blinkingCellKeys));
-            } else {
-              setBlinkingKeys(new Set());
+    const connectSse = () => {
+      if (!isMounted) return;
+      try {
+        es?.close();
+        es = new EventSource(
+          `/api/screens-stream?role=output&screenId=${encodeURIComponent(targetQueryId)}`
+        );
+
+        es.onopen = () => {
+          retryDelayMs = 1000;
+        };
+
+        es.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data) as SyncPayload;
+            if (!payload) return;
+
+            const payloadScreenId = payload.screenId || payload.project?.id;
+            if (screenId && payloadScreenId && payloadScreenId !== screenId) {
+              return;
             }
+
+            if (payload.type === 'PROJECT_UPDATE' && payload.project) {
+              setProject(payload.project);
+            } else if (payload.type === 'LASER_MOVE') {
+              setLaser(payload.laser || null);
+            } else if (payload.type === 'IDENTIFY_SCREEN') {
+              triggerIdentifyFlash();
+            } else if (payload.type === 'BLINK_CELLS') {
+              if (payload.blinkActive && payload.blinkingCellKeys) {
+                setBlinkingKeys(new Set(payload.blinkingCellKeys));
+              } else {
+                setBlinkingKeys(new Set());
+              }
+            }
+          } catch {
+            // ignore parse errors
           }
-        } catch {
-          // ignore parse errors
-        }
-      };
-    } catch {
-      // ignore SSE error in serverless Tauri mode
-    }
+        };
+
+        es.onerror = () => {
+          es?.close();
+          es = null;
+          if (!isMounted) return;
+          if (reconnectTimer) window.clearTimeout(reconnectTimer);
+          const delay = retryDelayMs;
+          retryDelayMs = Math.min(10000, retryDelayMs * 2);
+          reconnectTimer = window.setTimeout(() => {
+            reconnectTimer = null;
+            fetchLatestSnapshot();
+            connectSse();
+          }, delay);
+        };
+      } catch {
+        // ignore SSE error in serverless Tauri mode
+      }
+    };
+
+    fetchLatestSnapshot();
+    connectSse();
 
     return () => {
       isMounted = false;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (identifyTimerRef.current) window.clearTimeout(identifyTimerRef.current);
       es?.close();
     };
   }, [screenId]);
@@ -229,7 +291,7 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
       }
       try {
         if (window.opener && !window.opener.closed) {
-          window.opener.postMessage(hb, '*');
+          window.opener.postMessage(hb, window.location.origin);
         }
       } catch {
         // ignore
@@ -342,6 +404,7 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
         isLiveOutput: true,
         identifyFlashActive: identifyFlash,
         identifyFlashIntensity: flashIntensityVal,
+        lang,
         onAsyncImageLoad: () => setClockTick((t) => t + 1),
       });
     };
@@ -413,7 +476,10 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
       }
     }, intervalMs);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      disposeTauriNdiScratchCanvas();
+    };
   }, [
     project.id,
     project.ndiConfig?.enabled,

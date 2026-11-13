@@ -131,8 +131,8 @@ function binaryToDataUrl(bytes: Uint8Array, mimeType: string): string {
  */
 function capturePreviewThumbnailBytes(canvas?: HTMLCanvasElement | null): Uint8Array | null {
   if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
+  const thumb = document.createElement('canvas');
   try {
-    const thumb = document.createElement('canvas');
     thumb.width = 320;
     thumb.height = 180;
     const tCtx = thumb.getContext('2d');
@@ -144,6 +144,9 @@ function capturePreviewThumbnailBytes(canvas?: HTMLCanvasElement | null): Uint8A
     return dataUrlToBinary(dataUrl)?.bytes || null;
   } catch {
     return null;
+  } finally {
+    thumb.width = 0;
+    thumb.height = 0;
   }
 }
 
@@ -272,8 +275,13 @@ export function buildWorkspaceSgdArchive(
   const safeName = (workspace.name || 'Studio_Project').replace(/[\\/:*?"<>|]/g, '_');
   const fileName = `${safeName}_${sanitizedScreens.length}screens.sgd`;
 
+  const blobBuffer = zipped.buffer.slice(
+    zipped.byteOffset,
+    zipped.byteOffset + zipped.byteLength
+  ) as ArrayBuffer;
+
   return {
-    blob: new Blob([zipped.buffer as ArrayBuffer], { type: 'application/octet-stream' }),
+    blob: new Blob([blobBuffer], { type: 'application/octet-stream' }),
     fileName,
     stats: {
       screensCount: sanitizedScreens.length,
@@ -349,8 +357,13 @@ export function buildSingleScreenSgdArchive(
   const safeName = (screen.name || 'Studio_Screen').replace(/[\\/:*?"<>|]/g, '_');
   const fileName = `${safeName}_${screen.compWidth}x${screen.compHeight}.sgd`;
 
+  const blobBuffer = zipped.buffer.slice(
+    zipped.byteOffset,
+    zipped.byteOffset + zipped.byteLength
+  ) as ArrayBuffer;
+
   return {
-    blob: new Blob([zipped.buffer as ArrayBuffer], { type: 'application/octet-stream' }),
+    blob: new Blob([blobBuffer], { type: 'application/octet-stream' }),
     fileName,
     stats: {
       screensCount: 1,

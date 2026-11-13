@@ -9,12 +9,9 @@ import {
   FolderOpen,
   Folders,
   GitMerge,
-  Image as ImageIcon,
-  Monitor,
   Package,
   Stack,
   Trash,
-  WarningCircle,
   X,
 } from '@phosphor-icons/react';
 import {
@@ -31,7 +28,6 @@ interface SavedProjectsModalProps {
   workspaceName: string;
   onWorkspaceNameChange: (name: string) => void;
   currentScreens: StudioProject[];
-  currentProject: StudioProject;
   savedWorkspaces: SavedWorkspaceProject[];
   lang: UILanguage;
   onSaveWorkspace: (customName?: string) => void;
@@ -51,7 +47,6 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
   workspaceName,
   onWorkspaceNameChange,
   currentScreens,
-  currentProject,
   savedWorkspaces,
   lang,
   onSaveWorkspace,
@@ -119,9 +114,9 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer transition-colors"
+            className="p-1.5 studio-btn border rounded-none cursor-pointer"
           >
-            <X weight="bold" className="w-4 h-4 text-[#1C1E22]" />
+            <X weight="bold" className="w-4 h-4" />
           </button>
         </div>
 
@@ -147,9 +142,9 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
             <button
               type="button"
               onClick={() => onSaveWorkspace(workspaceName)}
-              className="px-3.5 py-1.5 bg-[#C8CDD8] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+              className="px-3.5 py-1.5 studio-btn-elevated border rounded-none text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
-              <FloppyDisk weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+              <FloppyDisk weight="bold" className="w-3.5 h-3.5" />
               <span>{t('حفظ المشروع الآن', 'Save Project Now')}</span>
             </button>
           </div>
@@ -182,11 +177,11 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                 onClick={() => setActiveTab(id)}
                 className={`py-2.5 px-3 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 rounded-none cursor-pointer transition-colors ${
                   active
-                    ? 'bg-[#C8CDD8] text-[#1C1E22] border-[#1C1E22]'
+                    ? 'studio-btn-elevated border-[#FACC15]'
                     : 'bg-[#2A2D34] hover:bg-[#32363F] text-[#DCE0E8] border-transparent'
                 }`}
               >
-                <Icon weight="bold" className={`w-3.5 h-3.5 ${active ? 'text-[#1C1E22]' : 'text-[#D0D5DE]'}`} />
+                <Icon weight="bold" className="w-3.5 h-3.5" />
                 <span>{label}</span>
               </button>
             );
@@ -228,9 +223,9 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                             onLoadWorkspace(ws);
                             onClose();
                           }}
-                          className="px-2.5 py-1.5 bg-[#C8CDD8] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                          className="px-2.5 py-1.5 studio-btn-elevated border rounded-none text-xs font-bold flex items-center gap-1 cursor-pointer"
                         >
-                          <FolderOpen weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                          <FolderOpen weight="bold" className="w-3.5 h-3.5" />
                           <span>{t('فتح', 'Open')}</span>
                         </button>
 
@@ -238,7 +233,7 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                           type="button"
                           onClick={() => onOverwriteWorkspace(ws.id)}
                           title={t('تحديث هذا المشروع بالحالة الحالية', 'Overwrite with current')}
-                          className="px-2 py-1.5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold cursor-pointer transition-colors"
+                          className="px-2 py-1.5 studio-btn border rounded-none text-xs font-bold cursor-pointer"
                         >
                           {t('تحديث', 'Update')}
                         </button>
@@ -257,9 +252,9 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                           type="button"
                           onClick={() => onDeleteWorkspace(ws.id)}
                           title={t('حذف المشروع', 'Delete')}
-                          className="p-1.5 bg-[#9FA6B3] hover:bg-[#B4BAC6] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer transition-colors"
+                          className="p-1.5 studio-btn border rounded-none cursor-pointer"
                         >
-                          <Trash weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                          <Trash weight="bold" className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -310,18 +305,18 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => onExportWorkspaceJson()}
-                  className="py-2.5 px-3 bg-[#C8CDD8] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  className="py-2.5 px-3 studio-btn-elevated border rounded-none text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <FileArrowDown weight="bold" className="w-4 h-4 text-[#1C1E22]" />
+                  <FileArrowDown weight="bold" className="w-4 h-4" />
                   <span>{t('تصدير المشروع كاملاً (.sgd)', 'Export Full Bundle (.sgd)')}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={onExportCurrentScreenJson}
-                  className="py-2.5 px-3 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  className="py-2.5 px-3 studio-btn border rounded-none text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <FileArrowDown weight="bold" className="w-4 h-4 text-[#1C1E22]" />
+                  <FileArrowDown weight="bold" className="w-4 h-4" />
                   <span>
                     {t(
                       `تصدير الشاشة الحالية (.sgd)`,
@@ -333,9 +328,9 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                 <button
                   type="button"
                   onClick={onImportJsonClick}
-                  className="py-2.5 px-3 bg-[#C8CDD8] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  className="py-2.5 px-3 studio-btn-elevated border rounded-none text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <FileArrowUp weight="bold" className="w-4 h-4 text-[#1C1E22]" />
+                  <FileArrowUp weight="bold" className="w-4 h-4" />
                   <span>{t('استيراد ملف (.sgd / .json)', 'Import (.sgd / .json)')}</span>
                 </button>
               </div>
@@ -366,9 +361,9 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
                   <button
                     type="button"
                     onClick={handlePasteImport}
-                    className="px-4 py-1.5 bg-[#C8CDD8] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                    className="px-4 py-1.5 studio-btn-elevated border rounded-none text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Check weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                    <Check weight="bold" className="w-3.5 h-3.5" />
                     <span>{t('استيراد الكود', 'Import JSON')}</span>
                   </button>
                 </div>
@@ -378,29 +373,39 @@ export const SavedProjectsModal: React.FC<SavedProjectsModalProps> = ({
 
           {activeTab === 'templates' && (
             <div className="space-y-2">
-              {PRESET_PROJECT_TEMPLATES.map((tpl) => (
-                <div
-                  key={tpl.id}
-                  className="p-3 bg-[#202328] border border-[#434853] rounded-none flex items-center justify-between gap-3"
-                >
-                  <div>
-                    <div className="text-xs font-bold text-[#DCE0E8]">{tpl.name}</div>
-                    <div dir="ltr" className="text-[11px] font-mono text-[#AEB5C2]">
-                      {tpl.compWidth}×{tpl.compHeight}px
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onLoadSingleTemplate(tpl);
-                      onClose();
-                    }}
-                    className="px-3 py-1.5 bg-[#C8CDD8] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold cursor-pointer transition-colors"
+              {PRESET_PROJECT_TEMPLATES.map((tpl) => {
+                const displayName =
+                  lang === 'en'
+                    ? tpl.id === 'screen-1'
+                      ? 'Screen 1 — Main Stage (16:9)'
+                      : tpl.id === 'screen-2'
+                      ? 'Screen 2 — Panorama Wall (32:9)'
+                      : tpl.name
+                    : tpl.name;
+                return (
+                  <div
+                    key={tpl.id}
+                    className="p-3 bg-[#202328] border border-[#434853] rounded-none flex items-center justify-between gap-3"
                   >
-                    {t('تطبيق القالب', 'Apply Template')}
-                  </button>
-                </div>
-              ))}
+                    <div>
+                      <div className="text-xs font-bold text-[#DCE0E8]">{displayName}</div>
+                      <div dir="ltr" className="text-[11px] font-mono text-[#AEB5C2]">
+                        {tpl.compWidth}×{tpl.compHeight}px
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onLoadSingleTemplate(tpl);
+                        onClose();
+                      }}
+                      className="px-3 py-1.5 studio-btn-elevated border rounded-none text-xs font-bold cursor-pointer"
+                    >
+                      {t('تطبيق القالب', 'Apply Template')}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

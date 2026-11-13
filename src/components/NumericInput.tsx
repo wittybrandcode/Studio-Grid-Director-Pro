@@ -131,7 +131,7 @@ export const NumericInput: React.FC<NumericInputProps> = ({
 
       <input
         type="text"
-        inputMode="numeric"
+        inputMode={isFloat ? 'decimal' : 'numeric'}
         dir="ltr"
         value={draft}
         onFocus={(e) => {

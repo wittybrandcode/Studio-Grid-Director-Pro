@@ -1,0 +1,28 @@
+[package]
+name = "studio-grid-director-pro"
+version = "2.0.0"
+description = "Studio Grid Director Pro — LED Wall & Broadcast Calibration Desk"
+authors = ["Studio Grid Director Team"]
+edition = "2021"
+
+[lib]
+name = "studio_grid_director_pro_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+# Enable native NDI SDK frame transmission via `grafton-ndi` (requires NewTek NDI SDK installed on build machine)
+ndi-sdk = ["dep:grafton-ndi"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+grafton-ndi = { version = "0.6", optional = true }

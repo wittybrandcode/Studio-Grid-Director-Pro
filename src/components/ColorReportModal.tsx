@@ -228,7 +228,11 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
     out.width = reportW;
     out.height = reportH;
     const ctx = out.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      out.width = 0;
+      out.height = 0;
+      return;
+    }
 
     // Background
     ctx.fillStyle = '#181A1F';
@@ -335,12 +339,17 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
     ]);
 
     out.toBlob((blob) => {
-      if (!blob) return;
-      const fileName = `Calibration_Report_Card_${project.name.replace(/\s+/g, '_')}.png`;
-      void saveStudioBinaryFile(blob, fileName, {
-        filterName: 'PNG Calibration Report Card (.png)',
-        extensions: ['png'],
-      });
+      try {
+        if (!blob) return;
+        const fileName = `Calibration_Report_Card_${project.name.replace(/\s+/g, '_')}.png`;
+        void saveStudioBinaryFile(blob, fileName, {
+          filterName: 'PNG Calibration Report Card (.png)',
+          extensions: ['png'],
+        });
+      } finally {
+        out.width = 0;
+        out.height = 0;
+      }
     }, 'image/png');
   };
 
@@ -367,9 +376,9 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] cursor-pointer"
+            className="p-1 rounded-none studio-btn border cursor-pointer"
           >
-            <X weight="bold" className="w-4 h-4 text-[#1C1E22]" />
+            <X weight="bold" className="w-4 h-4" />
           </button>
         </div>
 
@@ -721,10 +730,10 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
                         calibrationStatus: st.id,
                       }))
                     }
-                    className={`px-2.5 py-1 rounded-none border border-[#3A3E47] text-[10px] font-bold cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-none border text-[10px] font-bold cursor-pointer ${
                       colorCfg.calibrationStatus === st.id
-                        ? 'bg-[#C8CDD8] text-[#1C1E22] ring-1 ring-[#DCE0E8]'
-                        : 'bg-[#9FA6B3] hover:bg-[#B4BAC6] text-[#1C1E22]'
+                        ? 'studio-btn-elevated ring-1 ring-[#DCE0E8]'
+                        : 'studio-btn'
                     }`}
                   >
                     {t(st.ar, st.en)}
@@ -757,27 +766,27 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
             <button
               type="button"
               onClick={handleDownloadVisualReportPng}
-              className="px-3 py-1.5 rounded-none bg-[#C8CDD8] hover:bg-[#D4D9E2] border border-[#3A3E47] text-[#1C1E22] text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="px-3 py-1.5 rounded-none studio-btn-elevated border text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
-              <ImageIcon weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+              <ImageIcon weight="bold" className="w-3.5 h-3.5" />
               <span>{t('تحميل بطاقة التقرير المصورة (PNG)', 'Download Visual Report Card (PNG)')}</span>
             </button>
 
             <button
               type="button"
               onClick={handleDownloadTextReport}
-              className="px-3 py-1.5 rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] border border-[#3A3E47] text-[#1C1E22] text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="px-3 py-1.5 rounded-none studio-btn border text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
-              <FileText weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+              <FileText weight="bold" className="w-3.5 h-3.5" />
               <span>{t('تحميل التقرير النصي (.TXT)', 'Download Text Report (.TXT)')}</span>
             </button>
 
             <button
               type="button"
               onClick={handleDownloadJsonReport}
-              className="px-3 py-1.5 rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] border border-[#3A3E47] text-[#1C1E22] text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="px-3 py-1.5 rounded-none studio-btn border text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
-              <FileCode weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+              <FileCode weight="bold" className="w-3.5 h-3.5" />
               <span>{t('بيانات التقرير (.JSON)', 'Export Report (.JSON)')}</span>
             </button>
           </div>
@@ -785,7 +794,7 @@ export const ColorReportModal: React.FC<ColorReportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-none bg-[#9FA6B3] hover:bg-[#B4BAC6] border border-[#3A3E47] text-[#1C1E22] text-xs font-bold flex items-center gap-1 cursor-pointer"
+            className="px-3 py-1.5 rounded-none studio-btn border text-xs font-bold flex items-center gap-1 cursor-pointer"
           >
             <span>{t('إغلاق', 'Close')}</span>
           </button>

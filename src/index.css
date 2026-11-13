@@ -30,7 +30,7 @@
   input,
   select,
   textarea {
-    border-radius: 0px !important;
+    border-radius: 0px;
   }
 
   input[type="range"] {
@@ -39,89 +39,49 @@
 }
 
 /* ============================================================================
-   Muted Matte-Gray Button Theme (Dark Gray at Rest, Radiant Silver ONLY on Hover)
+   Muted Matte-Gray Studio Button Classes (No !important overrides)
    ============================================================================ */
-:where(
-  button,
-  a
-):where(
-  .bg-\[\#8E95A2\],
-  .bg-\[\#9FA6B3\],
-  .bg-\[\#B4BAC6\],
-  .bg-\[\#C4C9D4\]
-) {
-  background-color: #2C3038 !important;
-  border-color: #3F4450 !important;
-  color: #C4CAD4 !important;
-  box-shadow: none !important;
-}
+@layer components {
+  .studio-btn {
+    background-color: #2C3038;
+    border-color: #3F4450;
+    color: #C4CAD4;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
 
-:where(
-  button,
-  a
-):where(
-  .bg-\[\#C8CDD8\],
-  .bg-\[\#D4D9E2\],
-  .bg-\[\#DCE0E8\],
-  .bg-\[\#FEF08A\]
-) {
-  background-color: #353A45 !important;
-  border-color: #565E6E !important;
-  color: #ECEFF4 !important;
-  box-shadow: none !important;
-}
+  .studio-btn:not(:disabled):hover {
+    background-color: #C8CDD8;
+    border-color: #E2E6EE;
+    color: #1C1E22;
+    box-shadow: 0 0 10px rgba(200, 205, 216, 0.28);
+  }
 
-/* Ensure icons and text spans inside muted buttons inherit the soft light-gray text at rest */
-:where(
-  button,
-  a
-):where(
-  .bg-\[\#8E95A2\],
-  .bg-\[\#9FA6B3\],
-  .bg-\[\#B4BAC6\],
-  .bg-\[\#C4C9D4\],
-  .bg-\[\#C8CDD8\],
-  .bg-\[\#D4D9E2\],
-  .bg-\[\#DCE0E8\],
-  .bg-\[\#FEF08A\]
-) :where(svg, span:not(.bg-\[\#1F2229\]), .text-\[\#1C1E22\]) {
-  color: inherit !important;
-}
+  .studio-btn-elevated {
+    background-color: #353A45;
+    border-color: #565E6E;
+    color: #ECEFF4;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
 
-/* Radiant / Bright Highlight ONLY on Hover */
-:where(
-  button:not(:disabled),
-  a
-):where(
-  .bg-\[\#8E95A2\],
-  .bg-\[\#9FA6B3\],
-  .bg-\[\#B4BAC6\],
-  .bg-\[\#C4C9D4\],
-  .bg-\[\#C8CDD8\],
-  .bg-\[\#D4D9E2\],
-  .bg-\[\#DCE0E8\],
-  .bg-\[\#FEF08A\]
-):hover {
-  background-color: #C8CDD8 !important;
-  border-color: #E2E6EE !important;
-  color: #1C1E22 !important;
-  box-shadow: 0 0 10px rgba(200, 205, 216, 0.28) !important;
-}
+  .studio-btn-elevated:not(:disabled):hover {
+    background-color: #C8CDD8;
+    border-color: #E2E6EE;
+    color: #1C1E22;
+    box-shadow: 0 0 10px rgba(200, 205, 216, 0.28);
+  }
 
-:where(
-  button:not(:disabled),
-  a
-):where(
-  .bg-\[\#8E95A2\],
-  .bg-\[\#9FA6B3\],
-  .bg-\[\#B4BAC6\],
-  .bg-\[\#C4C9D4\],
-  .bg-\[\#C8CDD8\],
-  .bg-\[\#D4D9E2\],
-  .bg-\[\#DCE0E8\],
-  .bg-\[\#FEF08A\]
-):hover :where(svg, span:not(.bg-\[\#1F2229\]), .text-\[\#1C1E22\]) {
-  color: #1C1E22 !important;
+  .studio-btn-active {
+    background-color: #DCE0E8;
+    border-color: #E2E6EE;
+    color: #1C1E22;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+
+  .studio-btn-active:not(:disabled):hover {
+    background-color: #ECEFF4;
+    border-color: #FFFFFF;
+    color: #111317;
+  }
 }
 
 /* Soft Matte Gray Studio Scrollbars (0px border-radius) */

@@ -111,25 +111,30 @@ export const ColorCalibrationSection: React.FC<ColorCalibrationSectionProps> = R
           targetH = Math.round(targetH * ratio);
         }
         const offscreen = document.createElement('canvas');
-        offscreen.width = targetW;
-        offscreen.height = targetH;
-        const octx = offscreen.getContext('2d');
-        if (octx) {
-          octx.drawImage(img, 0, 0, targetW, targetH);
-          const compressedDataUrl = offscreen.toDataURL('image/jpeg', 0.86);
-          onUpdateColorConfig((prev) => ({
-            ...prev,
-            testImagePreset: 'custom',
-            customImageDataUrl: compressedDataUrl,
-            customImageName: file.name,
-          }));
-        } else {
-          onUpdateColorConfig((prev) => ({
-            ...prev,
-            testImagePreset: 'custom',
-            customImageDataUrl: rawDataUrl,
-            customImageName: file.name,
-          }));
+        try {
+          offscreen.width = targetW;
+          offscreen.height = targetH;
+          const octx = offscreen.getContext('2d');
+          if (octx) {
+            octx.drawImage(img, 0, 0, targetW, targetH);
+            const compressedDataUrl = offscreen.toDataURL('image/jpeg', 0.86);
+            onUpdateColorConfig((prev) => ({
+              ...prev,
+              testImagePreset: 'custom',
+              customImageDataUrl: compressedDataUrl,
+              customImageName: file.name,
+            }));
+          } else {
+            onUpdateColorConfig((prev) => ({
+              ...prev,
+              testImagePreset: 'custom',
+              customImageDataUrl: rawDataUrl,
+              customImageName: file.name,
+            }));
+          }
+        } finally {
+          offscreen.width = 0;
+          offscreen.height = 0;
         }
       };
       img.src = rawDataUrl;
@@ -385,7 +390,7 @@ export const ColorCalibrationSection: React.FC<ColorCalibrationSectionProps> = R
                             }))
                           }
                           title={t('تصفير إزاحة الصورة (0,0)', 'Reset Image Offset')}
-                          className="w-6 h-6 flex items-center justify-center rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] cursor-pointer"
+                          className="w-6 h-6 flex items-center justify-center rounded-none studio-btn-elevated border cursor-pointer"
                         >
                           <ArrowCounterClockwise weight="bold" className="w-3.5 h-3.5" />
                         </button>
@@ -566,14 +571,14 @@ export const ColorCalibrationSection: React.FC<ColorCalibrationSectionProps> = R
                       <button
                         type="button"
                         onClick={() => setIsSolidColorPickerOpen(true)}
-                        className="h-6 px-2 rounded-none bg-[#C8CDD8] hover:bg-[#D4D9E2] border border-[#3A3E47] text-[10px] font-bold text-[#1C1E22] flex items-center gap-1 cursor-pointer"
+                        className="h-6 px-2 rounded-none studio-btn-elevated border text-[10px] font-bold flex items-center gap-1 cursor-pointer"
                         title={t('منتقي الألوان المخصص', 'Custom Color Picker')}
                       >
                         <span
-                          className="w-3 h-3 border border-[#1C1E22] rounded-none shrink-0"
+                          className="w-3 h-3 border border-[#3A3E47] rounded-none shrink-0"
                           style={{ backgroundColor: colorConfig.solidPatchColor || '#FFFFFF' }}
                         />
-                        <Palette weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                        <Palette weight="bold" className="w-3.5 h-3.5" />
                       </button>
 
                       <button
@@ -683,7 +688,7 @@ export const ColorCalibrationSection: React.FC<ColorCalibrationSectionProps> = R
                       }))
                     }
                     title={t('تصفير جميع تعديلات الألوان', 'Reset all color adjustments')}
-                    className="w-6 h-6 flex items-center justify-center rounded-none bg-[#B4BAC6] hover:bg-[#C8CDD8] border border-[#3A3E47] text-[#1C1E22] cursor-pointer"
+                    className="w-6 h-6 flex items-center justify-center rounded-none studio-btn-elevated border cursor-pointer"
                   >
                     <ArrowCounterClockwise weight="bold" className="w-3.5 h-3.5" />
                   </button>
@@ -733,7 +738,7 @@ export const ColorCalibrationSection: React.FC<ColorCalibrationSectionProps> = R
                 <div className="grid grid-cols-5 gap-1" dir="ltr">
                   {(
                     [
-                      { id: 'all', label: 'RGB', activeBg: 'bg-[#DCE0E8] text-[#111317]' },
+                      { id: 'all', label: 'RGB', activeBg: 'studio-btn-active' },
                       { id: 'r', label: 'R', activeBg: 'bg-[#EF4444] text-[#FFFFFF]' },
                       { id: 'g', label: 'G', activeBg: 'bg-[#22C55E] text-[#09131C]' },
                       { id: 'b', label: 'B', activeBg: 'bg-[#3B82F6] text-[#FFFFFF]' },

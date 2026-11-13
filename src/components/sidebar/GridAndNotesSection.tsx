@@ -10,7 +10,6 @@ import {
   Eye,
   EyeSlash,
   GridFour,
-  Hash,
   Lightning,
   LockKey,
   NotePencil,
@@ -1570,7 +1569,7 @@ export const GridAndNotesSection: React.FC<GridAndNotesSectionProps> = React.mem
                       initialColor: project.selectionColor,
                     })
                   }
-                  className="w-6 h-6 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none flex items-center justify-center cursor-pointer shrink-0 transition-colors"
+                  className="w-6 h-6 studio-btn-elevated border rounded-none flex items-center justify-center cursor-pointer shrink-0"
                   title={t('فتح منتقي ألوان التحديد الاحترافي', 'Open Pro Selection Color Picker')}
                 >
                   <Palette weight="bold" className="w-3.5 h-3.5" />

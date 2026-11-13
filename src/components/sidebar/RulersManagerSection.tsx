@@ -428,7 +428,7 @@ export const RulersManagerSection: React.FC<RulersManagerSectionProps> = React.m
                             <button
                               type="button"
                               onClick={() => setColorPickerRulerId(r.id)}
-                              className="w-5 h-5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none flex items-center justify-center cursor-pointer shrink-0"
+                              className="w-5 h-5 studio-btn-elevated border rounded-none flex items-center justify-center cursor-pointer shrink-0"
                               title={t('لون مخصص للمسطرة', 'Pick custom ruler color')}
                             >
                               <Palette weight="bold" className="w-3 h-3" />

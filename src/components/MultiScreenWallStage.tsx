@@ -73,6 +73,7 @@ const ScreenCanvasSurface: React.FC<{
   screen: StudioProject;
   orderIndex: number;
   isPureMode: boolean;
+  lang: UILanguage;
   laser: LaserPointerState | null;
   blinkingCellKeys?: Set<string>;
   blinkPhaseOn?: boolean;
@@ -83,6 +84,7 @@ const ScreenCanvasSurface: React.FC<{
   screen,
   orderIndex,
   isPureMode,
+  lang,
   laser,
   blinkingCellKeys,
   blinkPhaseOn,
@@ -132,6 +134,7 @@ const ScreenCanvasSurface: React.FC<{
         identifyFlashActive,
         identifyFlashIntensity:
           typeof flashOverride === 'number' ? flashOverride : identifyFlashIntensity,
+        lang,
         onAsyncImageLoad: () => setImgLoadTick((t) => t + 1),
       });
     };
@@ -602,9 +605,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   'تلاصق أفقي بدون فجوات (0px) كجدار LED واحد متصل',
                   'Seamless 0px Horizontal LED Wall'
                 )}
-                className="px-2 py-1 bg-[#C4C9D4] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                className="px-2 py-1 studio-btn border rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer"
               >
-                <Columns weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                <Columns weight="bold" className="w-3.5 h-3.5" />
                 <span>{t('تلاصق 0px', 'Seamless 0px')}</span>
               </button>
 
@@ -612,9 +615,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                 type="button"
                 onClick={() => applyPresetArrangement('spaced_row')}
                 title={t('ترتيب الشاشات في صف أفقي متباعد', 'Spaced Horizontal Row')}
-                className="px-2 py-1 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                className="px-2 py-1 studio-btn border rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer"
               >
-                <Columns weight="regular" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                <Columns weight="regular" className="w-3.5 h-3.5" />
                 <span>{t('صف أفقي', 'Row')}</span>
               </button>
 
@@ -622,9 +625,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                 type="button"
                 onClick={() => applyPresetArrangement('vertical_stack')}
                 title={t('تكديس الشاشات عمودياً فوق بعضها', 'Vertical Stack')}
-                className="px-2 py-1 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                className="px-2 py-1 studio-btn border rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer"
               >
-                <Rows weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                <Rows weight="bold" className="w-3.5 h-3.5" />
                 <span>{t('عمودي', 'Stack')}</span>
               </button>
 
@@ -632,9 +635,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                 type="button"
                 onClick={() => applyPresetArrangement('grid_2x2')}
                 title={t('ترتيب الشاشات في شبكة 2×2', '2x2 Matrix Grid')}
-                className="px-2 py-1 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                className="px-2 py-1 studio-btn border rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer"
               >
-                <GridFour weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+                <GridFour weight="bold" className="w-3.5 h-3.5" />
                 <span>{t('شبكة 2×2', 'Grid')}</span>
               </button>
 
@@ -645,13 +648,13 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   'تفعيل / إيقاف مغناطيس محاذاة حواف الشاشات عند السحب',
                   'Toggle Edge & Center Magnetic Snapping'
                 )}
-                className={`px-2 py-1 border border-[#3A3E47] rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                className={`px-2 py-1 border rounded-none text-[11px] font-bold flex items-center gap-1 cursor-pointer ${
                   snapEnabled
-                    ? 'bg-[#DCE0E8] text-[#1C1E22] ring-1 ring-[#FEF08A]'
-                    : 'bg-[#9FA6B3] text-[#1C1E22]'
+                    ? 'studio-btn-active ring-1 ring-[#FEF08A]'
+                    : 'studio-btn'
                 }`}
               >
-                <MagnetStraight weight={snapEnabled ? 'fill' : 'bold'} className="w-3.5 h-3.5 text-[#1C1E22]" />
+                <MagnetStraight weight={snapEnabled ? 'fill' : 'bold'} className="w-3.5 h-3.5" />
                 <span>{t('مغناطيس المحاذاة', 'Snap')}</span>
               </button>
             </div>
@@ -689,7 +692,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   type="button"
                   onClick={(e) => updateActiveScreenCoord('x', e.shiftKey ? -1 : -20, true)}
                   title={t('تحريك لليسار (Shift = 1px)', 'Nudge Left (Shift = 1px)')}
-                  className="w-6 h-6 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                  className="w-6 h-6 flex items-center justify-center studio-btn border rounded-none cursor-pointer"
                 >
                   <ArrowLeft weight="bold" className="w-3 h-3" />
                 </button>
@@ -697,7 +700,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   type="button"
                   onClick={(e) => updateActiveScreenCoord('y', e.shiftKey ? -1 : -20, true)}
                   title={t('تحريك للأعلى (Shift = 1px)', 'Nudge Up (Shift = 1px)')}
-                  className="w-6 h-6 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                  className="w-6 h-6 flex items-center justify-center studio-btn border rounded-none cursor-pointer"
                 >
                   <ArrowUp weight="bold" className="w-3 h-3" />
                 </button>
@@ -705,7 +708,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   type="button"
                   onClick={(e) => updateActiveScreenCoord('y', e.shiftKey ? 1 : 20, true)}
                   title={t('تحريك للأسفل (Shift = 1px)', 'Nudge Down (Shift = 1px)')}
-                  className="w-6 h-6 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                  className="w-6 h-6 flex items-center justify-center studio-btn border rounded-none cursor-pointer"
                 >
                   <ArrowDown weight="bold" className="w-3 h-3" />
                 </button>
@@ -713,7 +716,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   type="button"
                   onClick={(e) => updateActiveScreenCoord('x', e.shiftKey ? 1 : 20, true)}
                   title={t('تحريك لليمين (Shift = 1px)', 'Nudge Right (Shift = 1px)')}
-                  className="w-6 h-6 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                  className="w-6 h-6 flex items-center justify-center studio-btn border rounded-none cursor-pointer"
                 >
                   <ArrowRight weight="bold" className="w-3 h-3" />
                 </button>
@@ -723,7 +726,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                 type="button"
                 onClick={bringActiveScreenToFront}
                 title={t('رفع الشاشة المحددة للأمام فوق الشاشات المتقاطعة', 'Bring Screen to Front')}
-                className="px-1.5 py-0.5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-[10px] font-bold flex items-center gap-0.5 cursor-pointer"
+                className="px-1.5 py-0.5 studio-btn border rounded-none text-[10px] font-bold flex items-center gap-0.5 cursor-pointer"
               >
                 <StackSimple weight="bold" className="w-3 h-3" />
                 <span>{t('للأمام', 'Front')}</span>
@@ -741,7 +744,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   setStageZoom((z) => Math.max(0.03, Number((z / 1.2).toFixed(4))));
                 }}
                 title={t('تصغير المسرح', 'Zoom Out Stage')}
-                className="w-7 h-7 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center studio-btn border rounded-none cursor-pointer"
               >
                 <MagnifyingGlassMinus weight="bold" className="w-3.5 h-3.5" />
               </button>
@@ -752,10 +755,8 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   fitAllScreensInView();
                 }}
                 title={t('احتواء وتوسيط جميع الشاشات', 'Fit All Screens')}
-                className={`px-2 h-7 flex items-center gap-1 border border-[#3A3E47] rounded-none text-[11px] font-mono font-bold cursor-pointer ${
-                  autoFitStage
-                    ? 'bg-[#DCE0E8] text-[#1C1E22]'
-                    : 'bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22]'
+                className={`px-2 h-7 flex items-center gap-1 border rounded-none text-[11px] font-mono font-bold cursor-pointer ${
+                  autoFitStage ? 'studio-btn-active' : 'studio-btn'
                 }`}
               >
                 <CornersOut weight="bold" className="w-3.5 h-3.5" />
@@ -768,7 +769,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   setStageZoom((z) => Math.min(2.0, Number((z * 1.2).toFixed(4))));
                 }}
                 title={t('تكبير المسرح', 'Zoom In Stage')}
-                className="w-7 h-7 flex items-center justify-center bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center studio-btn border rounded-none cursor-pointer"
               >
                 <MagnifyingGlassPlus weight="bold" className="w-3.5 h-3.5" />
               </button>
@@ -787,9 +788,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                 'الوضع النقي: إظهار الشاشات في مواقعها فقط بدون أيقونات أو أطراف تعديل أو قوائم (اضغط Esc للعودة)',
                 'Pure Mode: Show screens in their exact positions with zero icons, borders, or UI distractions (Press Esc to exit)'
               )}
-              className="px-3 py-1 bg-[#FEF08A] hover:bg-[#FDE047] text-[#1C1E22] border border-[#1C1E22] ring-1 ring-[#FEF08A] rounded-none text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md transition-colors"
+              className="px-3 py-1 studio-btn-elevated border ring-1 ring-[#FEF08A] rounded-none text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
-              <Eye weight="fill" className="w-4 h-4 text-[#1C1E22]" />
+              <Eye weight="fill" className="w-4 h-4" />
               <span>{t('الوضع النقي (بدون مشتتات)', 'Pure Mode')}</span>
             </button>
 
@@ -797,7 +798,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
               type="button"
               onClick={onExitWallView}
               title={t('العودة لتحرير الشاشة المفردة', 'Return to Single Screen Editor')}
-              className="px-2.5 py-1 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none text-xs font-bold cursor-pointer transition-colors"
+              className="px-2.5 py-1 studio-btn border rounded-none text-xs font-bold cursor-pointer"
             >
               {t('شاشة مفردة', 'Single Screen')}
             </button>
@@ -821,9 +822,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
           <button
             type="button"
             onClick={() => onTogglePureMode(false)}
-            className="px-2.5 py-1 bg-[#FEF08A] hover:bg-[#FDE047] text-[#1C1E22] font-bold text-xs flex items-center gap-1.5 rounded-none cursor-pointer"
+            className="px-2.5 py-1 studio-btn-elevated border font-bold text-xs flex items-center gap-1.5 rounded-none cursor-pointer"
           >
-            <EyeSlash weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+            <EyeSlash weight="bold" className="w-3.5 h-3.5" />
             <span>{t('الخروج من الوضع النقي (Esc)', 'Exit Pure Mode (Esc)')}</span>
           </button>
           <button
@@ -832,9 +833,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
               setAutoFitStage(true);
               fitAllScreensInView();
             }}
-            className="px-2 py-1 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] font-bold text-xs flex items-center gap-1 rounded-none cursor-pointer"
+            className="px-2 py-1 studio-btn border font-bold text-xs flex items-center gap-1 rounded-none cursor-pointer"
           >
-            <ArrowCounterClockwise weight="bold" className="w-3.5 h-3.5 text-[#1C1E22]" />
+            <ArrowCounterClockwise weight="bold" className="w-3.5 h-3.5" />
             <span>{t('توسيط الشاشات', 'Center Screens')}</span>
           </button>
         </div>
@@ -967,9 +968,9 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                         onFlashScreen(scr.id);
                       }}
                       title={t('ومضة تعريفية للشاشة', 'Flash Identify Screen')}
-                      className="px-1 py-0.5 bg-[#B4BAC6] hover:bg-[#C8CDD8] text-[#1C1E22] border border-[#3A3E47] rounded-none font-bold flex items-center cursor-pointer"
+                      className="px-1 py-0.5 studio-btn border rounded-none font-bold flex items-center cursor-pointer"
                     >
-                      <Lightning weight="fill" className="w-2.5 h-2.5 text-[#1C1E22]" />
+                      <Lightning weight="fill" className="w-2.5 h-2.5" />
                     </button>
                     <button
                       type="button"
@@ -978,7 +979,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                         onFocusSingleScreen(scr.id);
                       }}
                       title={t('الدخول لتعديل هذه الشاشة بمفردها', 'Edit this screen individually')}
-                      className="px-1.5 py-0.5 bg-[#C8CDD8] hover:bg-[#D4D9E2] text-[#1C1E22] border border-[#3A3E47] rounded-none font-bold text-[9px] cursor-pointer"
+                      className="px-1.5 py-0.5 studio-btn-elevated border rounded-none font-bold text-[9px] cursor-pointer"
                     >
                       {t('تعديل ⤢', 'Edit ⤢')}
                     </button>
@@ -992,6 +993,7 @@ export const MultiScreenWallStage: React.FC<MultiScreenWallStageProps> = ({
                   screen={scr}
                   orderIndex={orderIndex}
                   isPureMode={isPureMode}
+                  lang={lang}
                   laser={scr.id === activeScreenId ? activeLaser : null}
                   blinkingCellKeys={scr.id === activeScreenId ? editorBlinkingKeys : undefined}
                   blinkPhaseOn={editorBlinkPhaseOn}
