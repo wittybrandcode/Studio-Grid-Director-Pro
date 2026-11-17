@@ -2269,15 +2269,21 @@ export function renderStudioCanvas(
     const cellsWord = lang === 'en' ? 'Squares' : 'مربعات';
     const metaText = `${compWidth}×${compHeight} px  ·  ${computed.cols}×${computed.rows} ${cellsWord} (${Math.round(computed.baseCellWidth)}×${Math.round(computed.baseCellHeight)}px)${physExtra}`;
 
+    const hasArabicTitle = /[\u0600-\u06FF]/.test(titleText);
+    const maxSlateW = Math.max(160, compWidth - 40);
+
+    ctx.direction = hasArabicTitle ? 'rtl' : 'ltr';
     ctx.font = `700 ${titleSize}px "Cairo", "Plus Jakarta Sans", sans-serif`;
     const w1 = ctx.measureText(titleText).width;
+    ctx.direction = 'ltr';
     ctx.font = `700 ${metaSize}px "JetBrains Mono", "Cairo", monospace`;
     const w2 = ctx.measureText(metaText).width;
 
-    const slateW = Math.max(w1, w2) + padX * 2;
+    const slateW = Math.min(maxSlateW, Math.max(w1, w2) + padX * 2);
     const slateH = titleSize + metaSize + padY * 2.2;
     const sx = Math.max(20, Math.round(compWidth * 0.018));
     const sy = Math.max(20, Math.round(compHeight * 0.022));
+    const slateTextMaxW = Math.max(100, slateW - padX * 1.4);
 
     ctx.fillStyle = 'rgba(9, 13, 22, 0.92)';
     ctx.fillRect(sx, sy, slateW, slateH);
@@ -2286,15 +2292,18 @@ export function renderStudioCanvas(
     ctx.lineWidth = Math.max(2.5, minSide * 0.003);
     ctx.strokeRect(sx, sy, slateW, slateH);
 
-    ctx.font = `700 ${titleSize}px "Cairo", "Plus Jakarta Sans", sans-serif`;
-    ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(titleText, sx + slateW / 2, sy + padY * 0.85 + titleSize / 2);
 
+    ctx.direction = hasArabicTitle ? 'rtl' : 'ltr';
+    ctx.font = `700 ${titleSize}px "Cairo", "Plus Jakarta Sans", sans-serif`;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(titleText, sx + slateW / 2, sy + padY * 0.85 + titleSize / 2, slateTextMaxW);
+
+    ctx.direction = 'ltr';
     ctx.font = `700 ${metaSize}px "JetBrains Mono", "Cairo", monospace`;
     ctx.fillStyle = '#F59E0B';
-    ctx.fillText(metaText, sx + slateW / 2, sy + slateH - padY * 0.75 - metaSize / 2);
+    ctx.fillText(metaText, sx + slateW / 2, sy + slateH - padY * 0.75 - metaSize / 2, slateTextMaxW);
 
     ctx.restore();
   }
@@ -2556,53 +2565,161 @@ export function renderStudioCanvas(
     const div = gcd(compWidth, compHeight);
     const aspectStr = `${Math.round(compWidth / div)}:${Math.round(compHeight / div)}`;
     const megaPixels = ((compWidth * compHeight) / 1_000_000).toFixed(2);
-    const orderNum =
+    const screenOrderStr =
       options.screenOrderIndex !== undefined
-        ? `#${String(options.screenOrderIndex + 1).padStart(2, '0')} — `
+        ? `#${String(options.screenOrderIndex + 1).padStart(2, '0')}`
         : '';
 
-    const mainFont = Math.max(32, Math.round(minSide * 0.064));
-    const subFont = Math.max(17, Math.round(mainFont * 0.44));
-    const metaFont = Math.max(14, Math.round(mainFont * 0.34));
-    const cardW = Math.min(compWidth * 0.88, Math.max(540, mainFont * 13));
-    const cardH = mainFont + subFont + metaFont + Math.max(82, mainFont * 1.6);
-    const cx = (compWidth - cardW) / 2;
-    const cy = (compHeight - cardH) / 2;
-
-    ctx.fillStyle = 'rgba(9, 13, 22, 0.96)';
-    ctx.fillRect(cx, cy, cardW, cardH);
-
-    ctx.strokeStyle = '#F59E0B';
-    ctx.lineWidth = Math.max(4, minSide * 0.005);
-    ctx.strokeRect(cx, cy, cardW, cardH);
-
-    ctx.font = `700 ${mainFont}px "Cairo", "Plus Jakarta Sans", sans-serif`;
-    ctx.fillStyle = '#FEF08A';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`${orderNum}${project.name}`, compWidth / 2, cy + cardH * 0.3);
+    const hasArabicTitle = /[\u0600-\u06FF]/.test(project.name);
+    const titleDirection: CanvasDirection = hasArabicTitle ? 'rtl' : 'ltr';
+    // Wrap #02 in LRI/PDI Unicode isolates when mixed with RTL Arabic so "#02 — الشاشة 2" renders cleanly without flipping '#' or digits
+    const titleText = screenOrderStr
+      ? hasArabicTitle
+        ? `\u2066${screenOrderStr}\u2069 — ${project.name}`
+        : `${screenOrderStr} — ${project.name}`
+      : project.name;
 
     const physBannerLine = cabCfg.enabled
       ? `   |   ${physMetrics.widthMeters}m × ${physMetrics.heightMeters}m (P${physMetrics.pixelPitchMm})`
       : '';
-    ctx.font = `700 ${subFont}px "JetBrains Mono", "Cairo", monospace`;
-    ctx.fillStyle = '#38BDF8';
-    ctx.fillText(
-      `${compWidth} × ${compHeight} px  (${aspectStr})   |   ${computed.cols} × ${computed.rows} Grid${physBannerLine}`,
-      compWidth / 2,
-      cy + cardH * 0.61
-    );
+    const subText = `${compWidth} × ${compHeight} px  (${aspectStr})   |   ${computed.cols} × ${computed.rows} Grid${physBannerLine}`;
 
     const cabBannerMeta = cabCfg.enabled
       ? `   ·   CABINETS: ${physMetrics.cabinetsCols}×${physMetrics.cabinetsRows} (${physMetrics.totalCabinets})`
       : '';
+    const metaText = `CELL: ${Math.round(computed.baseCellWidth)}×${Math.round(computed.baseCellHeight)} px   ·   TOTAL: ${computed.cells.length} SQUARES (${megaPixels} MP)${cabBannerMeta}`;
+
+    // Safe inner viewport limits inside the outer identification frame
+    const maxCardW = Math.max(240, Math.round(compWidth - borderW * 3 - 24));
+    const maxCardH = Math.max(150, Math.round(compHeight - borderW * 3 - 24));
+
+    // Scale card typography noticeably larger so flash ID is effortlessly legible from stage distance
+    const scaleRef = Math.min(compHeight * 0.96, compWidth * 0.68);
+    let mainFont = Math.max(38, Math.round(scaleRef * 0.1));
+    let subFont = Math.max(20, Math.round(mainFont * 0.44));
+    let metaFont = Math.max(16, Math.round(mainFont * 0.34));
+
+    const provisionalPadX = Math.max(36, Math.round(mainFont * 0.68));
+    const maxTextW = Math.max(180, maxCardW - provisionalPadX * 2);
+
+    const fitTextLine = (
+      text: string,
+      desiredSize: number,
+      minSize: number,
+      fontStack: string,
+      direction: CanvasDirection
+    ): { size: number; width: number } => {
+      ctx.direction = direction;
+      let size = desiredSize;
+      for (let i = 0; i < 6; i++) {
+        ctx.font = `700 ${size}px ${fontStack}`;
+        const measured = ctx.measureText(text).width;
+        if (measured <= maxTextW || size <= minSize) {
+          return { size, width: Math.min(maxTextW, measured) };
+        }
+        size = Math.max(minSize, Math.floor(size * (maxTextW / measured) * 0.96));
+      }
+      ctx.font = `700 ${size}px ${fontStack}`;
+      return { size, width: Math.min(maxTextW, ctx.measureText(text).width) };
+    };
+
+    let titleFit = fitTextLine(
+      titleText,
+      mainFont,
+      20,
+      '"Cairo", "Plus Jakarta Sans", sans-serif',
+      titleDirection
+    );
+    let subFit = fitTextLine(
+      subText,
+      subFont,
+      14,
+      '"JetBrains Mono", "Cairo", monospace',
+      'ltr'
+    );
+    let metaFit = fitTextLine(
+      metaText,
+      metaFont,
+      12,
+      '"JetBrains Mono", "Cairo", monospace',
+      'ltr'
+    );
+
+    mainFont = titleFit.size;
+    subFont = subFit.size;
+    metaFont = metaFit.size;
+
+    let padX = Math.max(36, Math.round(mainFont * 0.72));
+    let padY = Math.max(28, Math.round(mainFont * 0.52));
+    let gap1 = Math.max(16, Math.round(mainFont * 0.28));
+    let gap2 = Math.max(12, Math.round(subFont * 0.4));
+
+    let desiredCardH = Math.round(padY * 2 + mainFont + gap1 + subFont + gap2 + metaFont);
+    if (desiredCardH > maxCardH) {
+      const vScale = maxCardH / desiredCardH;
+      mainFont = Math.max(16, Math.floor(mainFont * vScale));
+      subFont = Math.max(12, Math.floor(subFont * vScale));
+      metaFont = Math.max(10, Math.floor(metaFont * vScale));
+      padX = Math.max(20, Math.round(padX * vScale));
+      padY = Math.max(14, Math.round(padY * vScale));
+      gap1 = Math.max(8, Math.round(gap1 * vScale));
+      gap2 = Math.max(6, Math.round(gap2 * vScale));
+
+      titleFit = fitTextLine(
+        titleText,
+        mainFont,
+        14,
+        '"Cairo", "Plus Jakarta Sans", sans-serif',
+        titleDirection
+      );
+      subFit = fitTextLine(subText, subFont, 11, '"JetBrains Mono", "Cairo", monospace', 'ltr');
+      metaFit = fitTextLine(metaText, metaFont, 10, '"JetBrains Mono", "Cairo", monospace', 'ltr');
+      mainFont = titleFit.size;
+      subFont = subFit.size;
+      metaFont = metaFit.size;
+      desiredCardH = Math.round(padY * 2 + mainFont + gap1 + subFont + gap2 + metaFont);
+    }
+
+    const widestTextW = Math.max(titleFit.width, subFit.width, metaFit.width);
+    const minCommandingW = Math.min(maxCardW, Math.max(680, Math.round(compWidth * 0.56)));
+    const cardW = Math.min(maxCardW, Math.max(minCommandingW, Math.round(widestTextW + padX * 2)));
+    const cardH = Math.min(maxCardH, desiredCardH);
+    const cx = Math.round((compWidth - cardW) / 2);
+    const cy = Math.round((compHeight - cardH) / 2);
+    const safeInnerTextW = Math.max(120, cardW - padX * 1.4);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.72)';
+    ctx.shadowBlur = Math.max(20, Math.round(minSide * 0.03));
+    ctx.fillStyle = 'rgba(9, 13, 22, 0.96)';
+    ctx.fillRect(cx, cy, cardW, cardH);
+    ctx.restore();
+
+    ctx.strokeStyle = '#F59E0B';
+    ctx.lineWidth = Math.max(5, Math.round(minSide * 0.0055));
+    ctx.strokeRect(cx, cy, cardW, cardH);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const row1Y = cy + padY + mainFont / 2;
+    const row2Y = cy + padY + mainFont + gap1 + subFont / 2;
+    const row3Y = cy + padY + mainFont + gap1 + subFont + gap2 + metaFont / 2;
+
+    ctx.direction = titleDirection;
+    ctx.font = `700 ${mainFont}px "Cairo", "Plus Jakarta Sans", sans-serif`;
+    ctx.fillStyle = '#FEF08A';
+    ctx.fillText(titleText, compWidth / 2, row1Y, safeInnerTextW);
+
+    ctx.direction = 'ltr';
+    ctx.font = `700 ${subFont}px "JetBrains Mono", "Cairo", monospace`;
+    ctx.fillStyle = '#38BDF8';
+    ctx.fillText(subText, compWidth / 2, row2Y, safeInnerTextW);
+
+    ctx.direction = 'ltr';
     ctx.font = `700 ${metaFont}px "JetBrains Mono", "Cairo", monospace`;
     ctx.fillStyle = '#CBD5E1';
-    ctx.fillText(
-      `CELL: ${Math.round(computed.baseCellWidth)}×${Math.round(computed.baseCellHeight)} px   ·   TOTAL: ${computed.cells.length} SQUARES (${megaPixels} MP)${cabBannerMeta}`,
-      compWidth / 2,
-      cy + cardH * 0.85
-    );
+    ctx.fillText(metaText, compWidth / 2, row3Y, safeInnerTextW);
 
     ctx.restore();
   }

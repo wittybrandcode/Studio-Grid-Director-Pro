@@ -89,6 +89,11 @@ import {
   pushTauriNdiCanvasFrame,
 } from './utils/tauriBridge';
 import {
+  buildLiveOutputUrl,
+  LiveOutputRouteState,
+  parseLiveOutputRoute,
+} from './utils/liveOutputRoute';
+import {
   SavedProjectsModal,
   SgdImportDecisionModal,
 } from './components/StudioModals';
@@ -126,43 +131,32 @@ const SIDEBAR_MIN_WIDTH = 290;
 const SIDEBAR_MAX_WIDTH = 680;
 const SIDEBAR_DEFAULT_WIDTH = 360;
 
-function parseLiveOutputRoute(hash: string): {
-  isLiveOutput: boolean;
-  screenId: string | null;
-} {
-  if (!hash.startsWith('#live-output')) {
-    return { isLiveOutput: false, screenId: null };
-  }
-  const qIndex = hash.indexOf('?');
-  if (qIndex !== -1) {
-    const params = new URLSearchParams(hash.slice(qIndex + 1));
-    return {
-      isLiveOutput: true,
-      screenId: params.get('screen'),
-    };
-  }
-  const parts = hash.split('/');
-  if (parts.length > 1 && parts[1]) {
-    return { isLiveOutput: true, screenId: decodeURIComponent(parts[1]) };
-  }
-  return { isLiveOutput: true, screenId: null };
-}
-
 export function App() {
-  const [liveRoute, setLiveRoute] = useState<{
-    isLiveOutput: boolean;
-    screenId: string | null;
-  }>(() => parseLiveOutputRoute(window.location.hash));
-
-  const [isInAppLiveOutput, setIsInAppLiveOutput] = useState<boolean>(false);
+  const [liveRoute, setLiveRoute] = useState<LiveOutputRouteState>(() =>
+    parseLiveOutputRoute(window.location)
+  );
 
   useEffect(() => {
-    const onHashChange = () => {
-      setLiveRoute(parseLiveOutputRoute(window.location.hash));
+    const syncRoute = () => {
+      setLiveRoute(parseLiveOutputRoute(window.location));
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('hashchange', syncRoute);
+    window.addEventListener('popstate', syncRoute);
+    return () => {
+      window.removeEventListener('hashchange', syncRoute);
+      window.removeEventListener('popstate', syncRoute);
+    };
   }, []);
+
+  if (liveRoute.isLiveOutput) {
+    return <LiveOutputView screenId={liveRoute.screenId} />;
+  }
+
+  return <StudioEditorApp />;
+}
+
+function StudioEditorApp() {
+  const [isInAppLiveOutput, setIsInAppLiveOutput] = useState<boolean>(false);
 
   const [lang, setLang] = useState<UILanguage>(getStoredLang);
 
@@ -328,7 +322,7 @@ export function App() {
 
   // 1. Workspace Storage, Multi-Screen CRUD, Per-Screen Undo/Redo & Import/Export
   const storage = useWorkspaceStorage({
-    isLiveOutput: liveRoute.isLiveOutput,
+    isLiveOutput: false,
     t,
     showToast,
     canvasRef,
@@ -430,7 +424,7 @@ export function App() {
     activeScreenId,
     project,
     setScreens,
-    isLiveOutput: liveRoute.isLiveOutput,
+    isLiveOutput: false,
     isLiveFrozen,
     t,
     showToast,
@@ -672,10 +666,10 @@ export function App() {
   }, [stopPipBroadcast]);
 
   useEffect(() => {
-    if ((liveRoute.isLiveOutput || isInAppLiveOutput) && isPipActive) {
+    if (isInAppLiveOutput && isPipActive) {
       void stopPipBroadcast(true);
     }
-  }, [liveRoute.isLiveOutput, isInAppLiveOutput, isPipActive, stopPipBroadcast]);
+  }, [isInAppLiveOutput, isPipActive, stopPipBroadcast]);
 
   // Paint dedicated hidden clean broadcast canvas for PiP (without editor hover, marquee, or lock badges)
   const paintPipCanvas = useCallback(
@@ -1006,23 +1000,13 @@ export function App() {
 
   // (Extracted handlers live in useWorkspaceStorage, useWorkspaceSync, useLaserAndDrawing, useCanvasInteraction)
 
-  // Dedicated Pure Live Output Window (bound to its specific screenId)
-  if (liveRoute.isLiveOutput || isInAppLiveOutput) {
-    const targetId = isInAppLiveOutput ? project.id : liveRoute.screenId;
-    const initialForOutput =
-      screens.find((s) => s.id === targetId) || project;
+  // In-App Single-Screen Fullscreen Preview (Esc exits back to Editor)
+  if (isInAppLiveOutput) {
     return (
       <LiveOutputView
-        screenId={targetId}
-        initialProject={initialForOutput}
-        onExitLiveOutput={
-          isInAppLiveOutput
-            ? () => setIsInAppLiveOutput(false)
-            : () => {
-                window.location.hash = '';
-                setLiveRoute({ isLiveOutput: false, screenId: null });
-              }
-        }
+        screenId={project.id}
+        initialProject={project}
+        onExitLiveOutput={() => setIsInAppLiveOutput(false)}
       />
     );
   }
@@ -3158,7 +3142,7 @@ export function App() {
               </button>
 
               <a
-                href={`#live-output?screen=${encodeURIComponent(project.id)}`}
+                href={buildLiveOutputUrl(project.id)}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => {

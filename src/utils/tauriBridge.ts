@@ -1,4 +1,5 @@
 import { SyncPayload } from '../types/studio';
+import { buildLiveOutputUrl } from './liveOutputRoute';
 
 /**
  * Type definitions for Tauri v2 global API (`window.__TAURI__` when `app.withGlobalTauri = true`)
@@ -325,9 +326,7 @@ export async function openTauriLiveOutputWindow(
 
   const safeId = screen.id.replace(/[^a-zA-Z0-9_-]/g, '_');
   const windowLabel = `live-output-${safeId}`;
-  const targetUrl = `${window.location.origin}${window.location.pathname}#live-output?screen=${encodeURIComponent(
-    screen.id
-  )}`;
+  const targetUrl = buildLiveOutputUrl(screen.id, true);
   const windowTitle = `${screen.name} (${screen.compWidth}×${screen.compHeight}) — LIVE OUTPUT`;
 
   try {

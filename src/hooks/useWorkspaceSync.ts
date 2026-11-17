@@ -153,6 +153,24 @@ export function useWorkspaceSync({
           ...prev,
           [payload.screenId!]: Date.now(),
         }));
+      } else if (payload.type === 'PING' && payload.screenId) {
+        const match =
+          screensRef.current.find((s) => s.id === payload.screenId) ||
+          screensRef.current[0];
+        if (match) {
+          const reply: SyncPayload = {
+            type: 'PROJECT_UPDATE',
+            screenId: match.id,
+            project: match,
+            timestamp: Date.now(),
+          };
+          emitTauriSyncEvent(reply);
+          try {
+            broadcastChannelRef.current?.postMessage(reply);
+          } catch {
+            // ignore
+          }
+        }
       }
     };
 

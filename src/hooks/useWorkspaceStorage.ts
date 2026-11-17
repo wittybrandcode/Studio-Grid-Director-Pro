@@ -28,6 +28,7 @@ import {
   openStudioNativeProjectFile,
   openTauriLiveOutputWindow,
 } from '../utils/tauriBridge';
+import { buildLiveOutputUrl } from '../utils/liveOutputRoute';
 import { SgdImportDecisionMode } from '../components/StudioModals';
 import { parseResolumeAdvancedOutputXml } from '../utils/resolumeBridge';
 
@@ -521,7 +522,7 @@ export function useWorkspaceStorage({
         void openTauriLiveOutputWindow(newScreen);
       } else {
         const a = document.createElement('a');
-        a.href = `#live-output?screen=${encodeURIComponent(newId)}`;
+        a.href = buildLiveOutputUrl(newId);
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         document.body.appendChild(a);

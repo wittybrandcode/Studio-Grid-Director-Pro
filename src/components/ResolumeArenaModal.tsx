@@ -35,6 +35,7 @@ import {
   triggerResolumeArenaColumn,
 } from '../utils/resolumeBridge';
 import { isTauriRuntime, openTauriLiveOutputWindow } from '../utils/tauriBridge';
+import { buildLiveOutputUrl } from '../utils/liveOutputRoute';
 
 interface ResolumeArenaModalProps {
   isOpen: boolean;
@@ -106,7 +107,7 @@ export const ResolumeArenaModal: React.FC<ResolumeArenaModalProps> = ({
 
   if (!isOpen) return null;
 
-  const liveStreamUrl = `${window.location.origin}${window.location.pathname}#live-output?screen=${encodeURIComponent(activeScreen.id)}`;
+  const liveStreamUrl = buildLiveOutputUrl(activeScreen.id, true);
   const WIN_PRESET_PATH =
     '%USERPROFILE%\\Documents\\Resolume Arena\\Presets\\Advanced Output';
 

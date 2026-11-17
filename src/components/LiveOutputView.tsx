@@ -300,14 +300,37 @@ export const LiveOutputView: React.FC<LiveOutputViewProps> = ({
 
     const unlistenTauri = listenTauriSyncEvent(handleIncomingPayload);
 
+    const sendInitialPing = () => {
+      const ping: SyncPayload = {
+        type: 'PING',
+        screenId: effectiveScreenId,
+        timestamp: Date.now(),
+      };
+      emitTauriSyncEvent(ping);
+      try {
+        channel?.postMessage(ping);
+      } catch {
+        // ignore
+      }
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(ping, window.location.origin);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
     try {
       channel = new BroadcastChannel(CHANNEL_NAME);
       channel.onmessage = (event: MessageEvent<SyncPayload>) => {
         handleIncomingPayload(event.data);
       };
+      sendInitialPing();
       sendHeartbeat();
       heartbeatTimer = window.setInterval(sendHeartbeat, 1500);
     } catch {
+      sendInitialPing();
       sendHeartbeat();
       heartbeatTimer = window.setInterval(sendHeartbeat, 1500);
     }

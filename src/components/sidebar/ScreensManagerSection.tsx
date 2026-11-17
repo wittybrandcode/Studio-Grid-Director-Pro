@@ -34,6 +34,7 @@ import {
   openTauriLiveOutputWindow,
   stopTauriNdiStream,
 } from '../../utils/tauriBridge';
+import { buildLiveOutputUrl } from '../../utils/liveOutputRoute';
 
 interface ScreensManagerSectionProps {
   screens: StudioProject[];
@@ -284,7 +285,7 @@ export const ScreensManagerSection: React.FC<ScreensManagerSectionProps> = React
                     </button>
 
                     <a
-                      href={`#live-output?screen=${encodeURIComponent(scr.id)}`}
+                      href={buildLiveOutputUrl(scr.id)}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => {
@@ -549,9 +550,7 @@ export const ScreensManagerSection: React.FC<ScreensManagerSectionProps> = React
                 <button
                   type="button"
                   onClick={() => {
-                    const feedUrl = `${window.location.origin}${window.location.pathname}#live-output?screen=${encodeURIComponent(
-                      activeProject.id
-                    )}`;
+                    const feedUrl = buildLiveOutputUrl(activeProject.id, true);
                     void copyTextWithTauriFallback(feedUrl).then((ok) => {
                       if (ok) {
                         setCopiedFeedUrl(true);
